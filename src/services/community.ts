@@ -210,6 +210,19 @@ export async function createTeam(user: Profile, input: TeamDraft) {
   return post;
 }
 
+export async function editEvent(user: Profile, id: string, input: EventDraft) {
+  const data = eventSchema.parse(input);
+  if (data.date <= Date.now()) throw new Error("Choose a future date and time.");
+  if (user.role !== "admin") throw new Error("Only admins can edit events.");
+  if (db) return callRpc<CampusEvent>("edit_event", { p_id: id, p_event: data });
+  const local = readCommunity();
+  const event = local.events.find((e) => e.id === id);
+  if (!event) throw new Error("Event not found.");
+  Object.assign(event, data);
+  save(local);
+  return event;
+}
+
 export async function editTeam(user: Profile, id: string, input: TeamDraft) {
   const draft = teamSchema.parse(input);
   if (db)

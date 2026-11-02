@@ -27,6 +27,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   clubLead,
   createEvent,
+  editEvent,
   createTeam,
   editTeam,
   listenEvents,
@@ -169,6 +170,133 @@ function EventForm({ lead, onClose }: { lead: string; onClose: () => void }) {
           )}
           <Button className="primary" disabled={busy}>
             {busy ? "Saving event…" : "Create event"}
+            <ArrowRight size={16} />
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+function EditEventForm({
+  event,
+  onClose,
+}: {
+  event: CampusEvent;
+  onClose: () => void;
+}) {
+  const { user } = useAuth();
+  const [tags, setTags] = useState<string[]>([...event.tags]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  // Format existing date for datetime-local input (IST)
+  const defaultDate = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .format(new Date(event.date))
+    .replace(" ", "T");
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v && !busy) onClose(); }}>
+      <DialogContent className="report-dialog">
+        <DialogHeader>
+          <DialogTitle>Edit event</DialogTitle>
+          <DialogDescription>
+            Update the event details. Changes are visible immediately to all students.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="stack-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            setBusy(true);
+            setError("");
+            try {
+              await editEvent(user!, event.id, {
+                title: String(f.get("title")),
+                club: String(f.get("club")) as never,
+                date: Date.parse(String(f.get("date")) + ":00+05:30"),
+                venue: String(f.get("venue")),
+                description: String(f.get("description")),
+                tags: tags as never,
+              });
+              onClose();
+            } catch (e) {
+              setError(
+                (e as Error).name === "ZodError"
+                  ? "Check all fields and choose one to three tags."
+                  : (e as Error).message,
+              );
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <Label htmlFor="edit-event-title">Event title</Label>
+          <Input
+            id="edit-event-title"
+            name="title"
+            defaultValue={event.title}
+            minLength={5}
+            maxLength={120}
+            required
+          />
+          <Label htmlFor="edit-event-club">Club</Label>
+          <select
+            id="edit-event-club"
+            name="club"
+            className="native-select"
+            defaultValue={event.club}
+          >
+            {CLUBS.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+          <Label htmlFor="edit-event-date">Date and time (IST)</Label>
+          <Input
+            id="edit-event-date"
+            name="date"
+            type="datetime-local"
+            defaultValue={defaultDate}
+            required
+          />
+          <Label htmlFor="edit-event-venue">Venue</Label>
+          <Input
+            id="edit-event-venue"
+            name="venue"
+            defaultValue={event.venue}
+            minLength={3}
+            maxLength={120}
+            required
+          />
+          <Label htmlFor="edit-event-description">Description</Label>
+          <Textarea
+            id="edit-event-description"
+            name="description"
+            defaultValue={event.description}
+            minLength={20}
+            maxLength={2000}
+            required
+          />
+          <Label>Tags (1–3)</Label>
+          <Chips
+            options={TAGS}
+            value={tags}
+            onChange={setTags}
+            label="Event tags"
+          />
+          {error && (
+            <p role="alert" className="error-text">
+              {error}
+            </p>
+          )}
+          <Button className="primary" disabled={busy}>
+            {busy ? "Saving…" : "Save changes"}
             <ArrowRight size={16} />
           </Button>
         </form>
@@ -705,6 +833,7 @@ export default function Events() {
     [filter, setFilter] = useState("all"),
     [lead, setLead] = useState<string | null>(null),
     [creating, setCreating] = useState(false),
+    [editingEvent, setEditingEvent] = useState<CampusEvent | null>(null),
     [selected, setSelected] = useState<string | null>(null),
     [selectedTeamId, setSelectedTeamId] = useState<string | undefined>(),
     [version, setVersion] = useState(0);
@@ -861,6 +990,15 @@ export default function Events() {
                 <Button variant="outline" onClick={() => setSelected(e.id)}>
                   View event & find a team <ArrowRight size={16} />
                 </Button>
+                {user?.role === "admin" && (
+                  <Button
+                    variant="ghost"
+                    className="wide"
+                    onClick={() => setEditingEvent(e)}
+                  >
+                    <Pencil size={15} /> Edit event
+                  </Button>
+                )}
               </div>
             </article>
           ))}
@@ -876,6 +1014,12 @@ export default function Events() {
       {creating && lead && (
         <EventForm lead={lead} onClose={() => setCreating(false)} />
       )}{" "}
+      {editingEvent && (
+        <EditEventForm
+          event={editingEvent}
+          onClose={() => setEditingEvent(null)}
+        />
+      )}
       {event && (
         <EventDetail
           key={event.id}
