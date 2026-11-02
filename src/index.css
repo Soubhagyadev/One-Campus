@@ -2702,6 +2702,21 @@ select:focus-visible {
 .counselor small {
   font-size: 9px;
 }
+.counselor-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--primary);
+  font-weight: 500;
+  text-decoration: none;
+  line-height: 1;
+}
+.counselor-phone:hover {
+  text-decoration: underline;
+}
+.counselor > span + p {
+  margin-top: 6px;
+}
 .support-card.prominent {
   background: #fff5f3;
   border: 1px solid #e5beb8;

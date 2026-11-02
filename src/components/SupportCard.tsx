@@ -44,13 +44,13 @@ export function SupportCard({ prominent = false }: { prominent?: boolean }) {
           <div>
             <dt>Phone</dt>
             <dd>
-              <a href="tel:+916394490647">
-                <Phone size={13} /> +91-6394490647
+              <a className="counselor-phone" href="tel:+916394490647">
+                <Phone size={13} /><span>+91-6394490647</span>
               </a>
             </dd>
           </div>
         </dl>
-        <span style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+        <span>
           <MapPin size={15} />
           Medical Clinic
         </span>
@@ -63,8 +63,8 @@ export function SupportCard({ prominent = false }: { prominent?: boolean }) {
           <div>
             <dt>Phone</dt>
             <dd>
-              <a href="tel:+917899929134">
-                <Phone size={13} /> +91-7899929134
+              <a className="counselor-phone" href="tel:+917899929134">
+                <Phone size={13} /><span>+91-7899929134</span>
               </a>
             </dd>
           </div>
