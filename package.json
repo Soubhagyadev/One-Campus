@@ -8,9 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run tests/pulse.test.ts tests/store.test.ts tests/reports.test.ts tests/ai.test.ts tests/community.test.ts tests/wellness.test.ts tests/supabase.test.ts",
+    "test": "vitest run tests/pulse.test.ts tests/store.test.ts tests/reports.test.ts tests/ai.test.ts tests/community.test.ts tests/wellness.test.ts tests/supabase.test.ts tests/commerce.test.ts tests/commerce-database.test.ts",
     "test:rules": "npm run test:database",
-    "test:database": "vitest run tests/supabase.test.ts"
+    "test:database": "vitest run tests/supabase.test.ts tests/commerce-database.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.5.0",

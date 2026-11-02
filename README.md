@@ -1,6 +1,6 @@
 # OneCampus · Alliance University
 
-A working four-phase campus app: live library/lab crowd reports, unified reporting and lost-and-found, events and teams, and private wellness check-ins.
+A working campus app with six modules: live library/lab crowd reports, unified reporting and lost-and-found, events and teams, private wellness check-ins, a student marketplace, and a digital food court.
 
 **Supabase is the active database and authentication provider.** The connected project is [agiykfzlecswiaitykwr](https://supabase.com/dashboard/project/agiykfzlecswiaitykwr). Its schema, RLS policies, RPCs, Realtime publication, and six initial space records have been applied. Firebase is retained only for optional Firebase AI Logic and optional static Hosting; no Firestore or Firebase Auth calls remain in the app.
 
@@ -71,12 +71,32 @@ Or set `VITE_DEMO_MODE=true` in `.env.local` and restart. Student, Admin, and Fi
 
 Demo mode is explicit. Network/auth/database errors do not silently route real accounts into local storage.
 
+## Campus Marketplace
+
+- Open **Marketplace** in the sidebar. Students can publish a title, description, category, price, contact number, and up to three photos. JPEG/PNG/WebP files are re-encoded as JPEG (maximum 800px edge / 200 KB each) and saved with the listing in Supabase; no Storage bucket setup is needed.
+- Listings are **available immediately**, with no approval queue. Signed-in students can search/filter, open item details, and contact sellers. Sellers can mark their own listings sold or remove them. Contact numbers are intentionally shared with signed-in campus buyers.
+- Admins use **Moderate posts** to inspect all listings and remove spam, inappropriate or suspected fraudulent posts with a reason. Removed listings disappear from other students' queries; sellers can still see the removal reason in **My listings**. Moderation uses soft removal so the record remains available to admins.
+- Marketplace sales/payment happen directly between buyer and seller. The app does not process marketplace payments.
+
+## Digital Food Court
+
+- Open **Food Court** in the sidebar. The four meals have fixed, server-enforced prices: Breakfast ₹60, Lunch ₹100, Snacks ₹60, Dinner ₹100. Each meal includes all available food items displayed within it.
+- Initial **illustrative** serving windows in IST: Breakfast 07:00–10:00, Lunch 12:00–14:30, Snacks 16:00–18:00, Dinner 19:00–21:30. Admins can change these in **Manage menus**, pause availability, and add/edit/remove food items. End times are exclusive; overnight windows are supported. Student menu rows are hidden by RLS outside their serving windows, and ordering/payment is also checked against server time.
+- **View meal & continue** snapshots the signed-in student's name/email, selected meal, included items, and server price. Review the details, then use the clearly labeled simulated UPI interface. It never opens a payment app or requests a real UPI ID/PIN. Successful mock payments generate `DEMO-` transaction IDs and saved digital receipts; declined simulations cancel the pending order without a receipt. Checkouts expire after 10 minutes or when the meal closes.
+- Students reopen receipts under **My orders & receipts** and can download a text copy. Admins view all orders/payment statuses, search by student or transaction, inspect receipts, and **Mark collected** after verifying the live order. Marking collection twice preserves the original collection time. The receipts explicitly state that no real payment took place and are for demonstration, not proof of a real transaction.
+- Pending order creation and successful payment calls are idempotent. Menu edits do not rewrite previous order or receipt snapshots. Students can read only their own orders; admin-only kitchen/collection actions are checked in the database, not just hidden in the UI.
+- Admin dashboard cards link directly to marketplace moderation and food court operations. Both modules support the existing explicit local demo mode for isolated presentations.
+
 ## Database architecture
 
 The app uses Supabase Auth sessions and the browser-safe publishable key. PostgreSQL RLS enforces read visibility; transactional RPCs enforce mutations. Postgres Changes subscriptions invalidate the relevant queries, with a 30-second polling fallback on connection interruptions. No Supabase Storage or Edge Functions are required.
 
 | Table            | Purpose and visibility                                                                                              |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `marketplace_listings` | Signed-in available listings plus own/admin history; writes through authenticated publishing/moderation RPCs. |
+| `meal_services` | Four fixed-price meal schedules; signed-in reads, admin-only writes. |
+| `food_items` | Students see available items only during the meal window; admins manage all items. |
+| `food_orders` | Owner/admin reads; server-owned snapshots, mock payment IDs, and collection status. |
 | `profiles`       | Auth-owned UUID, display name, student/admin role. Self/admin reads; clients may update only their own name column. |
 | `spaces`         | Six editable seed spaces; signed-in reads.                                                                          |
 | `space_votes`    | One current crowd vote per account/space; own/admin reads.                                                          |
@@ -106,10 +126,10 @@ No Firestore data was copied automatically. The previously used browser demo rec
 
 ## Migrations and verification
 
-Migrations are in `supabase/migrations/` and were created with the Supabase CLI. Both the initial schema and the historical-space index migration have been applied to the connected project. Do not re-run an already applied migration directly; use migration history for another environment.
+Migrations are in `supabase/migrations/` and were created with the Supabase CLI. The initial schema, historical-space index, and marketplace/food-court migrations have been applied to the connected project. Do not re-run an already applied migration directly; use migration history for another environment.
 
 ```sh
-npm test                 # 30 application/privacy tests + PostgreSQL integration tests
+npm test                 # 57 application/privacy and PostgreSQL integration tests
 npm run test:database    # real PostgreSQL engine via PGlite; no Docker/cloud credentials needed
 npm run test:rules       # compatibility alias for the active PostgreSQL/RLS tests
 npm run build            # TypeScript + production build
@@ -117,6 +137,10 @@ npm run preview
 ```
 
 `tests/supabase.test.ts` applies the migration to an isolated PostgreSQL-compatible engine, creates synthetic Auth identities, and exercises role escalation, private visibility, server-owned deadlines, vote replacement, admin comments/statuses, contact approval, club permissions, RSVP idempotency, team input validation, and wellness cohort suppression.
+
+`tests/commerce-database.test.ts` additionally exercises immediate publication, seller identity, image/contact validation, moderation visibility, kitchen permissions, timing enforcement, order isolation, receipt snapshots, payment idempotency, cancellation, expiry, and collection. `tests/commerce.test.ts` checks IST boundaries, overnight windows, and local demo parity. All 57 tests pass.
+
+`supabase/commerce-verification.sql` was run on the live database inside a transaction followed by ROLLBACK. It verified immediate listing creation, moderation, server-priced checkout, successful simulated payment, and receipt collection. All synthetic users, listings, orders, and temporary schedule changes were rolled back.
 
 `supabase/verification.sql` was also run on the actual connected Supabase database inside a transaction followed by **ROLLBACK**. It verified crowd reports, private report reads, contact sharing, official updates, and hidden small wellness cohorts. The final query confirmed zero remaining test reports/users and six campus spaces. It does not send signup emails or persist test accounts. The script uses synthetic UUIDs and is for controlled verification, not recurring production monitoring.
 
@@ -197,7 +221,9 @@ This deploys no Firestore rules or Firebase database resources. No Supabase Stor
 3. **Lost & found:** in local Student demo, a blue metal bottle is lost. In Finder demo, submit a Blue / Metal found bottle; switch to Student to claim with synthetic evidence/contact, then back to Finder to approve. Contacts unlock only then.
 4. **Community:** RSVP to an event, post skills, and suggest complementary teams. Finder demo is the Coding Club lead; Admin can create for all clubs.
 5. **Wellness:** save a mood/private note and show device history. Admin initially sees Not enough data; local aggregate demo shows labeled synthetic days without exposing personal entries.
-6. **Admin:** review reporting analytics and congestion insights, distinguishing sample data and Local fallback from real cloud records/Gemini.
+6. **Marketplace:** publish an item with a photo as Student, view it as Finder immediately, then remove it with a reason as Admin.
+7. **Food Court:** in local demo, configure a currently open meal as Admin; switch to Student, review it, simulate UPI payment, reopen/download the receipt, then mark collection as Admin.
+8. **Admin:** review reporting analytics and congestion insights, distinguishing sample data and Local fallback from real cloud records/Gemini.
 
 For a live cloud demo, use actual Supabase test accounts in separate browser profiles. Cloud reports/events start empty. Promote only the intended test admin through the SQL editor.
 
@@ -205,6 +231,8 @@ For a live cloud demo, use actual Supabase test accounts in separate browser pro
 
 - Crowd data currently comes from **student reports**. Add QR check-ins or Wi-Fi counts for reliable coverage.
 - Restrict sign-up/sign-in to university accounts with an enforceable server policy. The current email label is not a domain restriction.
+- The new marketplace and food order lists currently load up to 2,000 visible records; add cursor pagination and external image storage for a larger deployment.
+- The Supabase advisor currently reports the pre-existing Auth setting **Leaked Password Protection Disabled**; configure it before public rollout: https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection . No new table/RLS/function security findings were introduced by the commerce migration.
 - Remove all demo-loading buttons and local personas before public use.
 - Configure verified campus support contacts, consent/retention policies, moderation and rate controls.
 - Wellness suppression is document-level anonymity/minimum cohort size, not differential privacy. Supabase authenticates API requests, but count rows contain no identity. Authenticated users can inflate anonymous counts without a privacy-aware rate-control design.

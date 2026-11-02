@@ -31,6 +31,7 @@ import { Status } from "@/components/Status";
 import { age, hourLabel, VOTE_TTL } from "@/lib/pulse";
 import type { CheckIn } from "@/lib/types";
 import { configured } from "@/services/supabase";
+import { Link } from "react-router-dom";
 export default function Admin() {
   const { spaces, loading, error, retry, now } = usePulse();
   const [logs, setLogs] = useState<CheckIn[]>([]),
@@ -99,6 +100,31 @@ export default function Admin() {
           {notice}
         </p>
       )}
+      <section
+        className="admin-commerce-links"
+        aria-label="Marketplace and food court administration"
+      >
+        <Link to="/marketplace">
+          <span className="eyebrow">CAMPUS MARKETPLACE</span>
+          <h2>Keep the community trustworthy.</h2>
+          <p>
+            Monitor student listings and remove spam or inappropriate posts.
+          </p>
+          <strong>
+            Manage marketplace <ArrowRight size={16} />
+          </strong>
+        </Link>
+        <Link to="/food-court">
+          <span className="eyebrow">DIGITAL FOOD COURT</span>
+          <h2>A smoother service, from the kitchen.</h2>
+          <p>
+            Edit menus and timings, monitor mock orders and verify receipts.
+          </p>
+          <strong>
+            Manage food court <ArrowRight size={16} />
+          </strong>
+        </Link>
+      </section>
       <div className="admin-stats">
         {[
           [Activity, "Spaces monitored", spaces.length],

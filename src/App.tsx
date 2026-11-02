@@ -15,6 +15,8 @@ import {
   LayoutDashboard,
   LogOut,
   GraduationCap,
+  ShoppingBag,
+  UtensilsCrossed,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,6 +28,8 @@ const Wellness = lazy(() => import("@/pages/Wellness"));
 const Events = lazy(() => import("@/pages/Events"));
 const Reports = lazy(() => import("@/pages/Reports"));
 const Admin = lazy(() => import("@/pages/Admin"));
+const Marketplace = lazy(() => import("@/pages/Marketplace"));
+const FoodCourt = lazy(() => import("@/pages/FoodCourt"));
 function Shell() {
   const { user, logout } = useAuth();
   const admin = user?.role === "admin";
@@ -34,12 +38,16 @@ function Shell() {
         [LayoutDashboard, "/admin", "Overview"],
         [Activity, "/pulse", "CampusPulse"],
         [Flag, "/reports", "Reports"],
+        [ShoppingBag, "/marketplace", "Marketplace"],
+        [UtensilsCrossed, "/food-court", "Food Court"],
         [CalendarDays, "/events", "Events"],
         [Heart, "/wellness", "Wellness"],
       ]
     : [
         [Activity, "/pulse", "Pulse"],
         [Flag, "/reports", "Report"],
+        [ShoppingBag, "/marketplace", "Marketplace"],
+        [UtensilsCrossed, "/food-court", "Food Court"],
         [CalendarDays, "/events", "Events"],
         [Heart, "/wellness", "Wellness"],
       ];
@@ -80,6 +88,8 @@ function Shell() {
                   "/reports",
                   "/events",
                   "/wellness",
+                  "/marketplace",
+                  "/food-court",
                 ].includes(String(url)) && <span className="soon-dot" />}
               </NavLink>
             );
@@ -194,6 +204,22 @@ function AppRoutes() {
       />
       <Route element={user ? <Shell /> : <Navigate replace to="/login" />}>
         <Route path="/pulse" element={<Pulse />} />
+        <Route
+          path="/marketplace"
+          element={
+            <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+              <Marketplace />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/food-court"
+          element={
+            <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+              <FoodCourt />
+            </Suspense>
+          }
+        />
         <Route
           path="/admin"
           element={
