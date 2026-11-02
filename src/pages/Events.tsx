@@ -299,6 +299,7 @@ function EventDetail({
               <h3>Good ideas need good people.</h3>
               <p>Find a team for this event.</p>
             </div>
+            {user?.role !== "admin" && (
             <Button
               variant="outline"
               disabled={past || busy}
@@ -314,13 +315,14 @@ function EventDetail({
               <Plus size={15} />
               Team post
             </Button>
+            )}
           </div>
           {notice && (
             <p role="status" className="success-message">
               {notice}
             </p>
           )}
-          {compose && (
+          {compose && user?.role !== "admin" && (
             <form
               key={editingPost?.id || "new-team-post"}
               className="stack-form team-compose"
