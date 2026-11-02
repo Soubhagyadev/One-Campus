@@ -217,9 +217,11 @@ function EventDetail({
         setLoading(false);
       },
     );
-    const r = listenRsvp(user!, event.id, setGoing, () =>
-      setError("RSVP status could not load. Please retry."),
-    );
+    const r = user?.role !== "admin"
+      ? listenRsvp(user!, event.id, setGoing, () =>
+          setError("RSVP status could not load. Please retry."),
+        )
+      : () => {};
     return () => {
       stop();
       r();
@@ -269,6 +271,7 @@ function EventDetail({
             <Users size={16} />
             {event.rsvpCount} going
           </span>
+          {user?.role !== "admin" && (
           <Button
             className={rsvp || compose ? "" : "primary"}
             variant={rsvp || compose ? "outline" : "default"}
@@ -292,6 +295,7 @@ function EventDetail({
                 ? "Going · withdraw RSVP"
                 : "Count me in"}
           </Button>
+          )}
         </div>
         <section className="team-finder">
           <div className="section-heading">
