@@ -33,24 +33,42 @@ export function SupportCard({ prominent = false }: { prominent?: boolean }) {
       <div className="counselor">
         <span>
           <MapPin size={15} />
-          Campus counselor
+          Mental Health
         </span>
-        <p>Contact details to be added by Alliance University.</p>
+        <p>Facilities: Assessment and Counselling</p>
         <dl>
           <div>
-            <dt>Name</dt>
-            <dd>To be confirmed</dd>
+            <dt>Venue</dt>
+            <dd>Hope, Health &amp; Healing, Learning Center, 2nd Floor, Central Campus</dd>
           </div>
           <div>
-            <dt>Timings</dt>
-            <dd>To be confirmed</dd>
-          </div>
-          <div>
-            <dt>Room</dt>
-            <dd>To be confirmed</dd>
+            <dt>Phone</dt>
+            <dd>
+              <a href="tel:+916394490647">
+                <Phone size={13} /> +91-6394490647
+              </a>
+            </dd>
           </div>
         </dl>
-        <small>Placeholder · campus contact is not yet configured.</small>
+        <span style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+          <MapPin size={15} />
+          Medical Clinic
+        </span>
+        <p>Facilities: Nursing Station and Physician Consultation</p>
+        <dl>
+          <div>
+            <dt>Venue</dt>
+            <dd>Activity Center, Central Campus</dd>
+          </div>
+          <div>
+            <dt>Phone</dt>
+            <dd>
+              <a href="tel:+917899929134">
+                <Phone size={13} /> +91-7899929134
+              </a>
+            </dd>
+          </div>
+        </dl>
       </div>
     </aside>
   );
