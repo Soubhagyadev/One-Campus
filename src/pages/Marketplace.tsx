@@ -285,19 +285,6 @@ export default function Marketplace() {
                     <Trash2 size={15} /> Remove listing
                   </Button>
                 )}
-                {l.seller_id === user!.uid && l.status === "available" && !admin && (
-                  <Button
-                    variant="ghost"
-                    className="wide commerce-danger"
-                    disabled={busy}
-                    onClick={() => {
-                      if (confirm(`Remove "${l.title}" from the marketplace?`))
-                        void change(l, "removed");
-                    }}
-                  >
-                    <Trash2 size={15} /> Remove listing
-                  </Button>
-                )}
                 {view === "manage" && l.status === "available" && (
                   <Button
                     variant="ghost"
