@@ -48,7 +48,11 @@ export function ChatBot() {
       const reply = await sendMessage(messages, text);
       setMessages((prev) => [...prev, { role: "model", text: reply }]);
     } catch (e) {
-      setError((e as Error).message || "Something went wrong. Please try again.");
+      setError(
+        (e as Error).name === "AbortError"
+          ? "Response took too long. Please try again."
+          : (e as Error).message || "Something went wrong. Please try again.",
+      );
     } finally {
       setBusy(false);
     }

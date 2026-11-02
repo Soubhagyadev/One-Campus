@@ -76,19 +76,24 @@ async function fetchLiveContext(): Promise<string> {
   if (!db) return "";
   try {
     const now = Date.now();
+    // 5 second timeout for context fetch so it doesn't eat into Gemini time
+    const timeout = new Promise<null>((_, reject) =>
+      setTimeout(() => reject(new Error("context timeout")), 5000),
+    );
+    const fetches = Promise.all([
+      db.from("events").select("id,payload").order("id").limit(50),
+      db.from("meal_services").select("*"),
+      db.from("food_items").select("*").eq("available", true),
+      db.from("spaces").select("id,payload").order("id"),
+      db
+        .from("marketplace_listings")
+        .select("*")
+        .eq("status", "available")
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ]);
     const [eventsRes, servicesRes, itemsRes, spacesRes, listingsRes] =
-      await Promise.all([
-        db.from("events").select("id,payload").order("id").limit(50),
-        db.from("meal_services").select("*"),
-        db.from("food_items").select("*").eq("available", true),
-        db.from("spaces").select("id,payload").order("id"),
-        db
-          .from("marketplace_listings")
-          .select("*")
-          .eq("status", "available")
-          .order("created_at", { ascending: false })
-          .limit(20),
-      ]);
+      await Promise.race([fetches, timeout.then(() => { throw new Error("context timeout"); })]) as Awaited<typeof fetches>;
 
     const lines: string[] = ["\n\n--- LIVE CAMPUS DATA (right now) ---"];
 
@@ -193,7 +198,7 @@ export async function sendMessage(
   ];
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  const timer = setTimeout(() => controller.abort(), 30000);
 
   try {
     const res = await fetch(API_URL, {
