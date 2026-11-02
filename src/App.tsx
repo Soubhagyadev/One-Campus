@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { ChatBot } from "@/components/ChatBot";
 import { configured } from "@/services/supabase";
 import Login from "@/pages/Login";
 import Pulse from "@/pages/Pulse";
@@ -160,6 +161,7 @@ function Shell() {
           <span>Alliance University · Bengaluru</span>
         </footer>
       </div>
+      {!admin && <ChatBot />}
       <nav className="bottom-nav">
         {links.map(([Icon, url, label]) => {
           const I = Icon as typeof Activity;
