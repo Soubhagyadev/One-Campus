@@ -285,6 +285,7 @@ export default function Pulse() {
                 space={s}
                 now={now}
                 voted={voted.includes(s.id)}
+                canVote={user?.role === "admin"}
                 onVote={() => {
                   setVoteError("");
                   setSelected(s);
@@ -302,7 +303,7 @@ export default function Pulse() {
         </p>
       </aside>
       <Dialog
-        open={!!selected}
+        open={!!selected && user?.role === "admin"}
         onOpenChange={(open) => {
           if (!open && !busy) setSelected(null);
         }}

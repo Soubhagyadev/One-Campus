@@ -17,11 +17,13 @@ export function SpaceCard({
   now,
   onVote,
   voted,
+  canVote = true,
 }: {
   space: Space;
   now: number;
   onVote: () => void;
   voted: boolean;
+  canVote?: boolean;
 }) {
   const stale = now - space.updatedAt >= VOTE_TTL || !space.reportCount;
   const Icon = space.type === "lab" ? Monitor : BookOpen;
@@ -67,11 +69,13 @@ export function SpaceCard({
           ? `Usually quieter after ${hourLabel(space.bestHour)}`
           : "More check-ins will reveal quieter hours"}
       </div>
+      {canVote && (
       <Button className="report-button" variant="outline" onClick={onVote}>
         {voted ? <Check size={16} /> : null}
         {voted ? "Update your crowd report" : "Report crowd level"}
         <ArrowUpRight size={16} />
       </Button>
+      )}
     </article>
   );
 }
