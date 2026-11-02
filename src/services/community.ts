@@ -147,7 +147,7 @@ export async function setRsvp(user: Profile, eventId: string, active: boolean) {
 }
 
 export function listenTeams(
-  eventId: string,
+  eventId: string | null,
   next: (posts: TeamPost[]) => void,
   error: (e: Error) => void,
 ) {
@@ -156,7 +156,7 @@ export function listenTeams(
       try {
         next(
           readCommunity()
-            .posts.filter((p) => p.eventId === eventId)
+            .posts.filter((p) => !eventId || p.eventId === eventId)
             .sort((a, b) => b.createdAt - a.createdAt),
         );
       } catch (e) {
@@ -164,12 +164,16 @@ export function listenTeams(
       }
     });
   return watch(
-    [{ table: "team_posts", filter: "event_id=eq." + eventId }],
+    [
+      {
+        table: "team_posts",
+        ...(eventId ? { filter: "event_id=eq." + eventId } : {}),
+      },
+    ],
     async () => {
-      const { data, error } = await db!
-        .from("team_posts")
-        .select("id,payload")
-        .eq("event_id", eventId);
+      let query = db!.from("team_posts").select("id,payload");
+      if (eventId) query = query.eq("event_id", eventId);
+      const { data, error } = await query.order("id").limit(2000);
       if (error) throw error;
       return (data || [])
         .map((r) => unpack<TeamPost>(r))
@@ -184,6 +188,7 @@ export async function createTeam(user: Profile, input: TeamDraft) {
   const data = teamSchema.parse(input),
     post: TeamPost = {
       ...data,
+      ownerName: user.name,
       id: crypto.randomUUID(),
       ownerUid: user.uid,
       createdAt: Date.now(),

@@ -90,12 +90,12 @@ export default function Reports() {
         status !== "all"
           ? "No reports match these filters"
           : tab === "board"
-            ? "Nothing lost. Nothing waiting to be found."
+            ? "No shared reports yet."
             : "Your reports will live here."}
       </h3>
       <p>
         {tab === "board"
-          ? "Lost and found posts appear here for everyone signed in."
+          ? "Shared campus issues and lost/found posts appear here for everyone signed in."
           : "Share a campus issue and follow its progress, all in one place."}
       </p>
     </div>
@@ -164,6 +164,12 @@ export default function Reports() {
           </div>
           <h3>{r.title}</h3>
           <p className="report-excerpt">{r.description}</p>
+          <p className="field-hint">
+            Reported by{" "}
+            {r.reporterName ||
+              (r.ownerUid === user?.uid ? user.name : "Campus member")}
+            {r.contactNumber ? ` · ${r.contactNumber}` : ""}
+          </p>
           <p className="location">
             <MapPin size={14} />
             {r.location}
@@ -233,7 +239,7 @@ export default function Reports() {
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
           ) : (
             <TabsTrigger value="board">
-              Lost & found <span>{board.length}</span>
+              Campus board <span>{board.length}</span>
             </TabsTrigger>
           )}
         </TabsList>
@@ -287,7 +293,17 @@ export default function Reports() {
                       }
                     >
                       <option value="all">
-                        All {String(label).toLowerCase()}s
+                        All{" "}
+                        {
+                          (
+                            {
+                              Type: "types",
+                              Department: "departments",
+                              Priority: "priorities",
+                              Status: "statuses",
+                            } as Record<string, string>
+                          )[String(label)]
+                        }
                       </option>
                       {(options as readonly string[]).map((x) => (
                         <option value={x} key={x}>
@@ -306,9 +322,10 @@ export default function Reports() {
       <div className="privacy-note report-footnote">
         <ShieldCheck size={19} />
         <p>
-          Issues and grievances stay between you and the campus team. Lost &
-          found is visible to signed-in students. Contacts unlock only after an
-          ownership claim is approved.
+          Campus issues can be shared or kept private. Lost & found posts show
+          the reporter’s name and any contact details they choose to add.
+          Grievances stay between the reporter and admins. Private claim
+          contacts unlock only after approval.
         </p>
       </div>
       {compose && (
@@ -327,6 +344,11 @@ export default function Reports() {
       {report && (
         <ReportDetail
           key={report.id}
+          onDeleted={() => {
+            setSelected(null);
+            setNotice("Report deleted.");
+            retry();
+          }}
           report={report}
           reports={reports}
           claims={claims}

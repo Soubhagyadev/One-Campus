@@ -1,4 +1,5 @@
 import { supabase as db, callRpc, watch, unpack } from "./supabase";
+import { terminalReport } from "@/lib/reports";
 import { listenReports } from "./reports";
 import { demoData } from "@/data/seed";
 import { bestHour, campusDate, summarize } from "@/lib/pulse";
@@ -139,7 +140,7 @@ export function listenOpenReports(
   if (!db) {
     return listenReports(
       { uid: "demo-admin", name: "Admin", role: "admin" },
-      (rows) => next(rows.filter((r) => r.status !== "Resolved").length),
+      (rows) => next(rows.filter((r) => !terminalReport(r)).length),
       error,
     );
   }
@@ -149,11 +150,54 @@ export function listenOpenReports(
       const { count, error } = await db!
         .from("reports")
         .select("id", { count: "exact", head: true })
-        .neq("status", "Resolved");
+        .not("status", "in", "(Resolved,Rejected,Completed)");
       if (error) throw error;
       return count || 0;
     },
     next,
     error,
   );
+}
+
+export async function createSpace(
+  user: import("@/lib/types").Profile,
+  input: {
+    name: string;
+    type: "library" | "lab";
+    zone: string;
+    quiet: boolean;
+  },
+) {
+  if (user.role !== "admin") throw new Error("Administrator access required.");
+  const name = input.name.trim(),
+    zone = input.zone.trim();
+  if (
+    name.length < 3 ||
+    name.length > 120 ||
+    zone.length < 3 ||
+    zone.length > 120 ||
+    !["library", "lab"].includes(input.type) ||
+    typeof input.quiet !== "boolean"
+  )
+    throw new Error("Check the space name, type and location.");
+  const id = crypto.randomUUID(),
+    payload = { ...input, name, zone };
+  if (db)
+    return callRpc<Space>("create_campus_space", {
+      p_id: id,
+      p_space: payload,
+    });
+  const data = readLocal(),
+    space: Space = {
+      ...payload,
+      id,
+      level: null,
+      reportCount: 0,
+      updatedAt: 0,
+      demo: true,
+    };
+  data.spaces.push(space);
+  data.votes[id] = {};
+  saveLocal(data);
+  return space;
 }

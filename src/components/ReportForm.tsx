@@ -64,6 +64,17 @@ export function ReportForm({
         image,
         photoSafe,
         safeDetails: details,
+        customDetails: {
+          topic: String(data.get("other-topic") || ""),
+          item: String(data.get("other-item") || ""),
+          color: String(data.get("other-color") || ""),
+        },
+        contactNumber: String(data.get("contact-number") || ""),
+        contactAddress: String(data.get("contact-address") || ""),
+        visibility:
+          details.intent === "grievance"
+            ? "private"
+            : String(data.get("visibility") || "campus"),
       });
     if (!parsed.success) {
       setError(parsed.error.issues[0].message);
@@ -204,6 +215,30 @@ export function ReportForm({
                 </>
               )}
             </div>
+            {(
+              [
+                ["topic", "Other"],
+                ["item", "Other item"],
+                ["color", "Other color"],
+              ] as const
+            ).map(
+              ([key, sentinel]) =>
+                details[key] === sentinel && (
+                  <div key={key}>
+                    <Label htmlFor={`other-${key}`}>
+                      Describe the other {key}
+                    </Label>
+                    <Input
+                      id={`other-${key}`}
+                      name={`other-${key}`}
+                      minLength={2}
+                      maxLength={120}
+                      required
+                      placeholder={`Write the ${key} manually`}
+                    />
+                  </div>
+                ),
+            )}
             <Label htmlFor="report-title">Title</Label>
             <Input
               id="report-title"
@@ -228,9 +263,9 @@ export function ReportForm({
               required
             />
             <p className="field-hint">
-              {item
-                ? "Lost and found posts are visible to signed-in students. Keep contact details and identifying documents out of your post."
-                : "Issues and grievances are visible only to you and administrators."}{" "}
+              {details.intent === "grievance"
+                ? "Grievances are visible only to you and administrators."
+                : "Your name and any contact details you choose to add are visible with a shared report. Use a campus meeting point for returns."}{" "}
               Free-text fields are never sent to Gemini.
             </p>
             <Label htmlFor="report-location">Campus location</Label>
@@ -242,6 +277,56 @@ export function ReportForm({
               maxLength={120}
               required
             />
+            {details.intent === "issue" && (
+              <>
+                <Label htmlFor="report-visibility">
+                  Who can see this report?
+                </Label>
+                <select
+                  id="report-visibility"
+                  name="visibility"
+                  className="native-select"
+                  defaultValue="campus"
+                >
+                  <option value="campus">
+                    Campus board · signed-in students and admins
+                  </option>
+                  <option value="private">Private · only me and admins</option>
+                </select>
+              </>
+            )}
+            <div className="form-grid">
+              <div>
+                <Label htmlFor="contact-number">
+                  Contact number (optional)
+                </Label>
+                <Input
+                  id="contact-number"
+                  name="contact-number"
+                  type="tel"
+                  maxLength={16}
+                  pattern="\+?[0-9]{10,15}"
+                  placeholder="10–15 digits, optional + prefix"
+                />
+              </div>
+              <div>
+                <Label htmlFor="contact-address">
+                  Contact address / meeting point (optional)
+                </Label>
+                <Input
+                  id="contact-address"
+                  name="contact-address"
+                  maxLength={160}
+                  placeholder="e.g. Library help desk, Block A"
+                />
+              </div>
+            </div>
+            <p className="field-hint">
+              Submitting as {user?.name}. Shared issue and lost/found posts
+              display your name and these optional contact details. Private
+              grievances stay restricted. Claim verification details remain
+              private until approval.
+            </p>
             <div className="photo-upload">
               <div>
                 <Label htmlFor="report-photo">

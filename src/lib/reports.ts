@@ -5,6 +5,8 @@ export const STATUSES = [
   "Assigned",
   "In Progress",
   "Resolved",
+  "Rejected",
+  "Completed",
 ] as const;
 export const PRIORITIES = ["high", "medium", "low"] as const;
 export const DEPARTMENTS = [
@@ -109,11 +111,48 @@ export const draftSchema = z
     image: imageSchema,
     photoSafe: z.boolean(),
     safeDetails: safeDetailsSchema,
+    customDetails: z
+      .object({
+        topic: z.string().trim().max(120),
+        item: z.string().trim().max(120),
+        color: z.string().trim().max(120),
+      })
+      .strict()
+      .optional(),
+    contactNumber: z
+      .string()
+      .trim()
+      .max(16)
+      .refine(
+        (v) => !v || /^\+?[0-9]{10,15}$/.test(v),
+        "Use 10–15 digits with an optional + prefix.",
+      )
+      .optional(),
+    contactAddress: z.string().trim().max(160).optional(),
+    visibility: z.enum(["campus", "private"]).optional(),
   })
   .strict()
   .refine((v) => !v.image || v.photoSafe, {
     message: "Confirm your photo has no people or identifying information.",
     path: ["photoSafe"],
+  })
+  // Custom free text stays separate from the AI-safe categorical attributes.
+  .superRefine((v, ctx) => {
+    const pairs = [
+      ["topic", "Other"],
+      ["item", "Other item"],
+      ["color", "Other color"],
+    ] as const;
+    for (const [key, sentinel] of pairs)
+      if (
+        v.safeDetails[key] === sentinel &&
+        (v.customDetails?.[key].trim().length || 0) < 2
+      )
+        ctx.addIssue({
+          code: "custom",
+          message: `Describe the other ${key} (at least 2 characters).`,
+          path: ["customDetails", key],
+        });
   });
 export type ReportDraft = z.infer<typeof draftSchema>;
 export const triageSchema = z
@@ -159,6 +198,12 @@ export type CampusReport = {
   createdAt: number;
   resolvedAt: number | null;
   demo: boolean;
+  reporterName?: string;
+  contactNumber?: string;
+  contactAddress?: string;
+  visibility?: "campus" | "private";
+  customDetails?: { topic: string; item: string; color: string };
+  deletedAt?: number;
   approvedClaimId?: string;
 };
 export type Claim = {
@@ -187,23 +232,41 @@ export function deadlineFor(priority: Priority, createdAt: number) {
   return createdAt + SLA_HOURS[priority] * 3600000;
 }
 export function isOverdue(report: CampusReport, now = Date.now()) {
-  return report.status !== "Resolved" && report.deadline < now;
+  return !terminalReport(report) && report.deadline < now;
 }
 export function displayStatus(report: CampusReport, now = Date.now()) {
   return isOverdue(report, now) ? "Escalated" : report.status;
 }
 export function nextStatus(status: ReportStatus): ReportStatus | null {
-  return STATUSES[STATUSES.indexOf(status) + 1] ?? null;
+  return (
+    (
+      {
+        Submitted: "Assigned",
+        Assigned: "In Progress",
+        "In Progress": "Resolved",
+      } as Partial<Record<ReportStatus, ReportStatus>>
+    )[status] ?? null
+  );
+}
+export function terminalReport(r: Pick<CampusReport, "status">) {
+  return ["Resolved", "Rejected", "Completed"].includes(r.status);
 }
 export function publicReport(r: CampusReport) {
-  return r.type === "lost" || r.type === "found";
+  return (
+    !r.deletedAt &&
+    (r.type === "lost" ||
+      r.type === "found" ||
+      (r.type === "issue" && r.visibility === "campus"))
+  );
 }
 export function visibleReports(
   rows: CampusReport[],
   uid: string,
   admin = false,
 ) {
-  return rows.filter((r) => admin || r.ownerUid === uid || publicReport(r));
+  return rows.filter(
+    (r) => !r.deletedAt && (admin || r.ownerUid === uid || publicReport(r)),
+  );
 }
 export function fallbackTriage(details: SafeDetails): Triage {
   const map: Record<
@@ -249,7 +312,8 @@ export function localMatches(
     .filter(
       (r) =>
         r.type === "lost" &&
-        r.status !== "Resolved" &&
+        !r.deletedAt &&
+        !terminalReport(r) &&
         r.safeDetails.item === details.item,
     )
     .map((r) => {
@@ -293,7 +357,10 @@ export function reportAnalytics(rows: CampusReport[], now = Date.now()) {
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   };
   const resolved = current.filter(
-    (r) => r.resolvedAt !== null && r.resolvedAt >= r.createdAt,
+    (r) =>
+      ["Resolved", "Completed"].includes(r.status) &&
+      r.resolvedAt !== null &&
+      r.resolvedAt >= r.createdAt,
   );
   const recurring = new Map<
     string,

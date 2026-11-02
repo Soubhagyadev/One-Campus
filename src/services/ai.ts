@@ -13,6 +13,7 @@ import {
   safeObjectDescription,
   localMatches,
   publicReport,
+  terminalReport,
 } from "@/lib/reports";
 import type { SafeDetails, CampusReport, Match } from "@/lib/reports";
 import type { CheckIn, Space } from "@/lib/types";
@@ -146,7 +147,8 @@ async function runJSON<T>(
   return { data: validator.parse(fallback), source: "Local fallback" };
 }
 type imagePartOrText =
-  string | { inlineData: { mimeType: string; data: string } };
+  | string
+  | { inlineData: { mimeType: string; data: string } };
 export async function triageReport(
   details: SafeDetails,
   image = "",
@@ -209,9 +211,7 @@ export async function matchFound(
 ): Promise<{ matches: Match[]; source: "Gemini" | "Local fallback" }> {
   const safe = safeDetailsSchema.parse(details);
   const lost = candidates
-    .filter(
-      (r) => publicReport(r) && r.type === "lost" && r.status !== "Resolved",
-    )
+    .filter((r) => publicReport(r) && r.type === "lost" && !terminalReport(r))
     .slice(0, 20);
   if (!lost.length) return { matches: [], source: "Local fallback" };
   const fallback = {

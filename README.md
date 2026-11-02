@@ -98,10 +98,10 @@ The app uses Supabase Auth sessions and the browser-safe publishable key. Postgr
 | `food_items` | Students see available items only during the meal window; admins manage all items. |
 | `food_orders` | Owner/admin reads; server-owned snapshots, mock payment IDs, and collection status. |
 | `profiles`       | Auth-owned UUID, display name, student/admin role. Self/admin reads; clients may update only their own name column. |
-| `spaces`         | Six editable seed spaces; signed-in reads.                                                                          |
+| `spaces`         | Six initial spaces plus admin-created libraries/labs; signed-in reads.                                                                          |
 | `space_votes`    | One current crowd vote per account/space; own/admin reads.                                                          |
 | `check_ins`      | Anonymous historical crowd levels; no user ID. Signed-in reads.                                                     |
-| `reports`        | Owner/admin reads for issues/grievances; signed-in reads for lost/found.                                            |
+| `reports`        | Shared campus issues and lost/found: signed-in reads. Private issues/grievances: owner/admin only. Deleted rows are hidden from all app readers.                                            |
 | `claims`         | Only claimant/finder may read their claim.                                                                          |
 | `claim_contacts` | Own contact or both contacts after approval; unrelated admins cannot read them.                                     |
 | `club_leads`     | Admin-controlled club assignment; self/admin reads.                                                                 |
@@ -112,12 +112,12 @@ The app uses Supabase Auth sessions and the browser-safe publishable key. Postgr
 
 Report/event/team/space/claim records keep their typed application payload in JSONB. Indexed relational/generated columns handle ownership, filtering, foreign keys, and RLS. Domain payloads use the existing camelCase TypeScript model so the UI does not lose timestamps, comments, timelines, or match data during the migration.
 
-All twelve public tables have RLS enabled. Anonymous clients have no table access. Signed-in clients have no direct table-write privileges except a column-limited own-name update. Public RPC wrappers are `SECURITY INVOKER`; guarded implementations live in the non-exposed `onecampus_private` schema with a pinned empty search path. Privileged implementations explicitly check `auth.uid()`, database roles/ownership, input allowlists, and bounds before changing data. Public/anonymous function execution is revoked.
+All sixteen public tables have RLS enabled. Anonymous clients have no table access. Signed-in clients have no direct table-write privileges except a column-limited own-name update. Public RPC wrappers are `SECURITY INVOKER`; guarded implementations live in the non-exposed `onecampus_private` schema with a pinned empty search path. Privileged implementations explicitly check `auth.uid()`, database roles/ownership, input allowlists, and bounds before changing data. Public/anonymous function execution is revoked.
 
 ### Transactions and privacy
 
 - **Crowd voting:** locks the space, replaces the student's vote, appends an anonymous log, and recomputes active reports in one database transaction. This removes the old client aggregation race. Historical log rows never contain account IDs.
-- **Reports:** the server supplies owner identity, timestamps, deadlines, initial Submitted status, and timeline. Only admins can advance sequential statuses and append official comments.
+- **Reports:** the server supplies owner identity, timestamps, deadlines, initial Submitted status, and timeline. Admins can directly choose Assigned, In Progress, Resolved, or Rejected and append official comments; rejection requires a reason. Reporters can complete their own open lost/found reports, update optional contacts/sharing, and soft-delete their own posts. Terminal/deleted posts close pending claims and do not escalate.
 - **Claims:** request/approval and private contact writes are atomic. A unique partial index permits only one approved claim per found post.
 - **RSVP:** locks the event and updates membership/count together. Repeated “going” does not increase the count twice.
 - **Wellness:** the RPC accepts only a mood and the current campus date. It increments one category and total; notes, tags, identities, and individual wellness entries are never stored in Postgres. It returns success, not the hidden count.
@@ -126,10 +126,10 @@ No Firestore data was copied automatically. The previously used browser demo rec
 
 ## Migrations and verification
 
-Migrations are in `supabase/migrations/` and were created with the Supabase CLI. The initial schema, historical-space index, and marketplace/food-court migrations have been applied to the connected project. Do not re-run an already applied migration directly; use migration history for another environment.
+Migrations are in `supabase/migrations/` and were created with the Supabase CLI. The initial schema, historical-space index, marketplace/food-court, and report-controls/team-board/space-management migrations have been applied to the connected project. Do not re-run an already applied migration directly; use migration history for another environment.
 
 ```sh
-npm test                 # 57 application/privacy and PostgreSQL integration tests
+npm test                 # 70 application/privacy and PostgreSQL integration tests
 npm run test:database    # real PostgreSQL engine via PGlite; no Docker/cloud credentials needed
 npm run test:rules       # compatibility alias for the active PostgreSQL/RLS tests
 npm run build            # TypeScript + production build
@@ -138,13 +138,15 @@ npm run preview
 
 `tests/supabase.test.ts` applies the migration to an isolated PostgreSQL-compatible engine, creates synthetic Auth identities, and exercises role escalation, private visibility, server-owned deadlines, vote replacement, admin comments/statuses, contact approval, club permissions, RSVP idempotency, team input validation, and wellness cohort suppression.
 
-`tests/commerce-database.test.ts` additionally exercises immediate publication, seller identity, image/contact validation, moderation visibility, kitchen permissions, timing enforcement, order isolation, receipt snapshots, payment idempotency, cancellation, expiry, and collection. `tests/commerce.test.ts` checks IST boundaries, overnight windows, and local demo parity. All 57 tests pass.
+`tests/commerce-database.test.ts` additionally exercises immediate publication, seller identity, image/contact validation, moderation visibility, kitchen permissions, timing enforcement, order isolation, receipt snapshots, payment idempotency, cancellation, expiry, and collection. `tests/commerce.test.ts` checks IST boundaries, overnight windows, and local demo parity. All 70 tests pass.
 
 `supabase/commerce-verification.sql` was run on the live database inside a transaction followed by ROLLBACK. It verified immediate listing creation, moderation, server-priced checkout, successful simulated payment, and receipt collection. All synthetic users, listings, orders, and temporary schedule changes were rolled back.
 
+`supabase/report-controls-verification.sql` was run in a rolled-back live transaction. It verified manual Other text, server-owned reporter names, contact visibility to another student, admin rejection, owner completion/deletion, and admin-created spaces. The final check confirmed zero synthetic users/reports/spaces remained.
+
 `supabase/verification.sql` was also run on the actual connected Supabase database inside a transaction followed by **ROLLBACK**. It verified crowd reports, private report reads, contact sharing, official updates, and hidden small wellness cohorts. The final query confirmed zero remaining test reports/users and six campus spaces. It does not send signup emails or persist test accounts. The script uses synthetic UUIDs and is for controlled verification, not recurring production monitoring.
 
-Supabase's security advisor reported **no security findings** after migration. Its missing foreign-key index finding was fixed. New, unused indexes can still appear as informational notices until the application has traffic; they support the app's ownership/filter paths. [Supabase index advisor reference](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index).
+Supabase's security advisor reports no new table, RLS, or function findings. The pre-existing Auth leaked-password-protection setting is noted under rollout tasks below. Its missing foreign-key index finding was fixed. New, unused indexes can still appear as informational notices until the application has traffic; they support the app's ownership/filter paths. [Supabase index advisor reference](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index).
 
 The retired Firestore rules and tests are in `docs/legacy/` for reference and are no longer the app's authorization boundary. `firebase.json` now contains static Hosting configuration only.
 
@@ -152,7 +154,7 @@ The retired Firestore rules and tests are in `docs/legacy/` for reference and ar
 
 ### CampusPulse
 
-- Search/filter six spaces by library/lab, zone, and quiet/group use.
+- Search/filter spaces by library/lab, zone, and quiet/group use. Admins have **Add space** in CampusPulse and on the admin overview. New spaces start with unknown occupancy and zero reports; student crowd votes update them normally.
 - Icon and text for Free / Moderate / Crowded, honest availability bands, report counts, last update, and stale states.
 - Active votes expire after 20 minutes. The UI hides an entirely stale summary; partially aged summaries refresh on the next vote, since no scheduled expiry job is deployed.
 - Best upcoming hour today comes from the last seven days of historical levels in Asia/Kolkata time. No prediction is invented without suitable history or upcoming hours.
@@ -161,19 +163,22 @@ The retired Firestore rules and tests are in `docs/legacy/` for reference and ar
 
 ### Unified reporting
 
-- One form for issue/grievance/lost/found, with title, description, location, optional photo, and structured routing/item attributes.
+- One form for issue/grievance/lost/found, with title, description, location, optional photo, structured routing/item attributes, and manual fields for Other topic/item/color choices. Optional phone and contact address/meeting point are displayed with the report; the reporter name is supplied by their database profile. Custom text and contact details are never sent to AI.
+- New campus issues default to **Campus board**, with an explicit private option. Lost/found posts are shared; grievances remain private. Existing private issues are preserved unless the owner explicitly shares one through **Edit contact details**. Older posts without a name snapshot show Campus member until their owner updates the details.
+- Report owners can **Delete report** (hidden from all app readers with a database tombstone), edit contact details, and mark an open lost/found post **Completed** when the item is recovered/returned. Pending claims close automatically on completion/deletion.
+- Admins can keep the current status or select **Assigned / In Progress / Resolved / Rejected** directly, including skipping or revising processing steps. Rejection requires an official reason. Timelines display actual transitions, rather than treating rejected/completed as mandatory workflow steps.
 - Photos are re-encoded on the device as metadata-free JPEGs: longest edge ≤800px and binary size ≤200 KB; base64 storage is capped at 300,000 characters. Inputs are limited to 10 MB and 40 megapixels.
 - **“Don't include people in photos.”** The uploader must confirm that a photo has no people, names, contact details, or IDs. This is a human confirmation, not automatic image moderation.
 - Structured AI triage or labeled local fallback. High urgency is not downgraded; the chosen public/private type is preserved.
 - Deadlines: high 24h, medium 72h, low seven days. Overdue unresolved reports display Escalated without a scheduled server job.
 - Student timelines/official comments and an admin filterable queue, status changes, comments, and monthly analytics.
-- Up to three lost/found suggestions from at most 20 open lost items; both parties can see suggested matches. Ownership claims and finder approval precede contact sharing.
+- Up to three lost/found suggestions from at most 20 open lost items; both parties can see suggested matches. Ownership claims and finder approval precede sharing private claim contacts. This is separate from the optional contact details voluntarily published on the report.
 
 ### Events and team finding
 
 - Events, club filters, descriptions, date/venue/tags, RSVP and withdrawal.
 - Admins create events for any club; assigned club leads create for their club only.
-- Looking for a team / Team needs members posts, skills, needed roles, idea and matching theme.
+- Looking for a team / Team needs members posts, skills, needed roles, idea and matching theme. The Events page includes a **Campus team requests** board for every signed-in student, across all upcoming events, independent of RSVP or club filter. Newly submitted posts appear there immediately and include the poster name; each card opens its event for connecting.
 - Complementary matching uses selected skills/roles/themes, not identities or free-text ideas. Optional poster extraction, messaging, subscriptions, editing/cancellation and invitations are not included.
 
 ### Private wellness

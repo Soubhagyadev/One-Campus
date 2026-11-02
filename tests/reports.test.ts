@@ -9,6 +9,7 @@ import {
   claimContacts,
   updateReport,
   readReportLocal,
+  manageOwnReport,
 } from "../src/services/reports";
 import {
   deadlineFor,
@@ -17,6 +18,7 @@ import {
   localMatches,
   reportAnalytics,
   visibleReports,
+  terminalReport,
 } from "../src/lib/reports";
 import type { ReportDraft } from "../src/lib/reports";
 const student = {
@@ -70,13 +72,17 @@ describe("report workflow", () => {
       visibleReports(rows, student.uid).some((r) => r.type === "grievance"),
     ).toBe(true);
   });
-  it("does not permit skipping statuses or non-admin updates", async () => {
+  it("allows direct admin status choices while blocking student updates", async () => {
     await expect(
       updateReport(student, "demo-report-2", "Assigned", ""),
     ).rejects.toThrow();
+    await updateReport(admin, "demo-report-2", "Resolved", "");
+    expect(
+      readReportLocal().reports.find((r) => r.id === "demo-report-2")?.status,
+    ).toBe("Resolved");
     await expect(
-      updateReport(admin, "demo-report-2", "Resolved", ""),
-    ).rejects.toThrow();
+      updateReport(admin, "demo-report-2", "Rejected", ""),
+    ).rejects.toThrow(/reason/);
     await updateReport(
       admin,
       "demo-report-2",
@@ -154,5 +160,70 @@ describe("report workflow", () => {
     expect(data.overdue).toBeGreaterThan(0);
     expect(data.averageHours).toBe(4);
     expect(data.recurring.some((x) => x.count >= 2)).toBe(true);
+  });
+});
+
+describe("reporter controls and sharing", () => {
+  it("requires manual descriptions for Other options", () => {
+    const other = {
+      ...draft,
+      safeDetails: { ...draft.safeDetails, item: "Other item" as const },
+    };
+    expect(draftSchema.safeParse(other).success).toBe(false);
+    expect(
+      draftSchema.safeParse({
+        ...other,
+        customDetails: { topic: "", item: "Scientific calculator", color: "" },
+      }).success,
+    ).toBe(true);
+  });
+  it("publishes new campus issues with reporter details while preserving private grievances", async () => {
+    const r = await submitReport(student, {
+      ...draft,
+      safeDetails: { ...draft.safeDetails, intent: "issue" },
+      contactNumber: "9876543210",
+      contactAddress: "Library desk",
+    });
+    expect(visibleReports([r], finder.uid)[0].reporterName).toBe("Student");
+    expect(r.contactNumber).toBe("9876543210");
+    const g = await submitReport(student, {
+      ...draft,
+      safeDetails: { ...draft.safeDetails, intent: "grievance" },
+      visibility: "campus",
+    });
+    expect(g.visibility).toBe("private");
+    expect(visibleReports([g], finder.uid)).toEqual([]);
+  });
+  it("lets only the reporter complete or delete and excludes completed posts from matching", async () => {
+    const found = await submitReport(finder, draft);
+    await expect(
+      manageOwnReport(student, found.id, "complete"),
+    ).rejects.toThrow(/reporter/);
+    await manageOwnReport(finder, found.id, "complete");
+    const completed = readReportLocal().reports.find((r) => r.id === found.id)!;
+    expect(completed.status).toBe("Completed");
+    expect(terminalReport(completed)).toBe(true);
+    expect(displayStatus({ ...completed, deadline: 0 })).toBe("Completed");
+    await manageOwnReport(finder, found.id, "delete");
+    expect(
+      visibleReports(readReportLocal().reports, finder.uid),
+    ).not.toContainEqual(expect.objectContaining({ id: found.id }));
+  });
+  it("updates reporter contact details and can explicitly share a previously private issue", async () => {
+    const r = await submitReport(student, {
+      ...draft,
+      safeDetails: { ...draft.safeDetails, intent: "issue" },
+      visibility: "private",
+    });
+    expect(visibleReports([r], finder.uid)).toEqual([]);
+    await manageOwnReport(student, r.id, "details", {
+      visibility: "campus",
+      contactNumber: "9876543210",
+      contactAddress: "Lab reception",
+    });
+    const shared = visibleReports(readReportLocal().reports, finder.uid).find(
+      (p) => p.id === r.id,
+    )!;
+    expect(shared.contactAddress).toBe("Lab reception");
   });
 });

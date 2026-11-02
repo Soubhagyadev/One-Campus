@@ -10,6 +10,7 @@ import {
   CircleCheck,
   Users,
   CircleAlert,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +21,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SpaceForm } from "@/components/SpaceForm";
 import { useAuth } from "@/hooks/useAuth";
 import { usePulse } from "@/hooks/usePulse";
 import { castVote, history } from "@/services/store";
@@ -30,6 +32,7 @@ import type { CheckIn, Level, Space } from "@/lib/types";
 export default function Pulse() {
   const { user } = useAuth(),
     { spaces, loading, error, now, retry } = usePulse();
+  const [addingSpace, setAddingSpace] = useState(false);
   const [filter, setFilter] = useState("all"),
     [search, setSearch] = useState(""),
     [quiet, setQuiet] = useState(false),
@@ -78,16 +81,33 @@ export default function Pulse() {
   ).length;
   return (
     <>
+      {addingSpace && (
+        <SpaceForm
+          onClose={() => setAddingSpace(false)}
+          onSaved={() =>
+            setMessage(
+              "Campus space added. Students can now report its crowd level.",
+            )
+          }
+        />
+      )}
       <div className="page-heading">
         <div>
           <span className="eyebrow">YOUR CAMPUS, AT A GLANCE</span>
           <h1>Find your space.</h1>
           <p>A quiet corner or a free computer. Know before you go.</p>
         </div>
-        <span className="live-label">
-          <span />
-          {configured ? "Live campus updates" : "Demo campus updates"}
-        </span>
+        <div className="action-row">
+          {user?.role === "admin" && (
+            <Button className="primary" onClick={() => setAddingSpace(true)}>
+              <Plus size={16} /> Add space
+            </Button>
+          )}
+          <span className="live-label">
+            <span />
+            {configured ? "Live campus updates" : "Demo campus updates"}
+          </span>
+        </div>
       </div>
       <section className="pulse-banner">
         <div>

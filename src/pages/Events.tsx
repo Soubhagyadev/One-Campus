@@ -360,8 +360,9 @@ function EventDetail({
                 placeholder="What would you like to build or explore?"
               />
               <p className="field-hint">
-                Visible to signed-in students. Don’t add contact details. AI
-                receives only selected skills, roles, and the idea theme.
+                Appears immediately on the campus team board for all signed-in
+                students. Don’t add contact details. AI receives only selected
+                skills, roles, and the idea theme.
               </p>
               <Button className="primary" disabled={busy}>
                 {busy ? "Posting…" : "Post to team finder"}
@@ -466,9 +467,8 @@ function EventDetail({
                     <small>
                       {p.ownerUid === user?.uid
                         ? "Your post"
-                        : p.demo
-                          ? "Demo data"
-                          : "Student post"}
+                        : p.ownerName ||
+                          (p.demo ? "Demo data" : "Campus student")}
                     </small>
                   </div>
                   <h4>{p.theme}</h4>
@@ -502,6 +502,104 @@ function EventDetail({
     </Dialog>
   );
 }
+
+function CampusTeamBoard({
+  events,
+  onSelect,
+}: {
+  events: CampusEvent[];
+  onSelect: (id: string) => void;
+}) {
+  const [posts, setPosts] = useState<TeamPost[]>([]),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState(""),
+    [version, setVersion] = useState(0);
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    return listenTeams(
+      null,
+      (rows) => {
+        setPosts(rows);
+        setLoading(false);
+      },
+      () => {
+        setError("Team requests could not load.");
+        setLoading(false);
+      },
+    );
+  }, [version]);
+  const visible = posts.filter((p) =>
+    events.some((e) => e.id === p.eventId && e.date > Date.now()),
+  );
+  return (
+    <section className="campus-team-board panel">
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">OPEN TO EVERY SIGNED-IN STUDENT</span>
+          <h2>
+            Campus team requests <span className="count">{visible.length}</span>
+          </h2>
+          <p>
+            Requests from all upcoming events appear here immediately. Open an
+            event to post your own.
+          </p>
+        </div>
+        <Users size={25} />
+      </div>
+      {loading ? (
+        <Skeleton className="h-40 w-full" />
+      ) : error ? (
+        <div>
+          <p role="alert">{error}</p>
+          <Button variant="outline" onClick={() => setVersion((v) => v + 1)}>
+            Retry team requests
+          </Button>
+        </div>
+      ) : !visible.length ? (
+        <p className="inline-empty">
+          No team requests yet. Open an upcoming event and choose “Team post” to
+          start one.
+        </p>
+      ) : (
+        <div className="team-board-grid">
+          {visible.map((p) => {
+            const e = events.find((e) => e.id === p.eventId)!;
+            return (
+              <article className="team-board-card" key={p.id}>
+                <span className="eyebrow">{e.title}</span>
+                <h3>
+                  {p.kind === "looking"
+                    ? "Looking for a team"
+                    : "Team needs members"}
+                </h3>
+                <p>{p.idea}</p>
+                <div className="tag-row">
+                  {p.skills.map((skill) => (
+                    <span key={skill}>{skill}</span>
+                  ))}
+                </div>
+                {p.roles.length > 0 && (
+                  <p className="field-hint">
+                    Looking for: {p.roles.join(", ")}
+                  </p>
+                )}
+                <small>
+                  Posted by {p.ownerName || "Campus student"} ·{" "}
+                  {reportDate(p.createdAt)}
+                </small>
+                <Button variant="outline" onClick={() => onSelect(e.id)}>
+                  Open event & connect <ArrowRight size={15} />
+                </Button>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function Events() {
   const { user } = useAuth();
   const [events, setEvents] = useState<CampusEvent[]>([]),
@@ -567,6 +665,9 @@ export default function Events() {
           <span>Make room for possibility.</span>
         </div>
       </section>
+      {!loading && !error && (
+        <CampusTeamBoard events={events} onSelect={setSelected} />
+      )}
       <div className="section-heading events-heading">
         <div>
           <h2>

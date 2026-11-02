@@ -3854,3 +3854,119 @@ select:focus-visible {
     min-width: 62px;
   }
 }
+
+.report-reporter {
+  border: 1px solid #e0e6ef;
+  border-radius: 10px;
+  padding: 18px;
+  background: #f8faff;
+  display: grid;
+  gap: 12px;
+}
+.report-reporter > p {
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.report-reporter .commerce-contact {
+  padding: 12px;
+}
+.report-owner-actions {
+  border: 1px solid #dce4ef;
+  border-radius: 10px;
+  padding: 18px;
+  display: grid;
+  gap: 15px;
+}
+.report-owner-actions .action-row {
+  flex-wrap: wrap;
+}
+.report-owner-actions button {
+  font-size: 11px;
+}
+.report-owner-actions .notice > p {
+  margin-bottom: 12px;
+}
+.report-reporter h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.campus-team-board {
+  margin: 25px 0;
+}
+.campus-team-board > .section-heading {
+  margin-bottom: 20px;
+}
+.campus-team-board h2 {
+  font-size: 20px;
+  margin-top: 8px;
+}
+.campus-team-board .section-heading p {
+  font-size: 12px;
+  line-height: 1.8;
+}
+.team-board-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+}
+.team-board-card {
+  padding: 20px;
+  border: 1px solid #e2e8f2;
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.team-board-card h3 {
+  font-size: 15px;
+}
+.team-board-card > p {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #62748f;
+  overflow-wrap: anywhere;
+}
+.team-board-card > small {
+  font-size: 10px;
+  color: #7d8aa1;
+}
+.team-board-card .eyebrow {
+  font-size: 9px;
+  line-height: 1.8;
+}
+.team-board-card button {
+  justify-self: start;
+  font-size: 11px;
+}
+.page-heading > .action-row {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.report-owner-actions .commerce-form {
+  padding-top: 10px;
+}
+.report-reporter .field-hint {
+  margin: 0;
+}
+@media (max-width: 700px) {
+  .team-board-grid {
+    grid-template-columns: 1fr;
+  }
+  .campus-team-board {
+    padding: 20px !important;
+  }
+  .page-heading > .action-row {
+    justify-content: flex-start;
+  }
+  .report-owner-actions .action-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .report-owner-actions .action-row > button {
+    width: 100%;
+    white-space: normal;
+  }
+}

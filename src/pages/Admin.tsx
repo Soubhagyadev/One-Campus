@@ -8,6 +8,7 @@ import {
   Sparkles,
   ArrowRight,
   Clock3,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,9 +32,11 @@ import { Status } from "@/components/Status";
 import { age, hourLabel, VOTE_TTL } from "@/lib/pulse";
 import type { CheckIn } from "@/lib/types";
 import { configured } from "@/services/supabase";
+import { SpaceForm } from "@/components/SpaceForm";
 import { Link } from "react-router-dom";
 export default function Admin() {
   const { spaces, loading, error, retry, now } = usePulse();
+  const [addingSpace, setAddingSpace] = useState(false);
   const [logs, setLogs] = useState<CheckIn[]>([]),
     [spaceId, setSpaceId] = useState("reading-hall"),
     [reports, setReports] = useState<number | null>(null),
@@ -84,16 +87,27 @@ export default function Admin() {
   );
   return (
     <>
+      {addingSpace && (
+        <SpaceForm
+          onClose={() => setAddingSpace(false)}
+          onSaved={() => setNotice("Campus space added.")}
+        />
+      )}
       <div className="page-heading">
         <div>
           <span className="eyebrow">CAMPUS OPERATIONS</span>
           <h1>A clearer view of campus.</h1>
           <p>See where it’s busy. Make room for a better day.</p>
         </div>
-        <Button variant="outline" disabled={seeding} onClick={seed}>
-          <Database size={16} />
-          {seeding ? "Loading demo data…" : "Load demo data"}
-        </Button>
+        <div className="action-row">
+          <Button className="primary" onClick={() => setAddingSpace(true)}>
+            <Plus size={16} /> Add space
+          </Button>
+          <Button variant="outline" disabled={seeding} onClick={seed}>
+            <Database size={16} />
+            {seeding ? "Loading demo data…" : "Load demo data"}
+          </Button>
+        </div>
       </div>
       {notice && (
         <p role="status" className="notice">

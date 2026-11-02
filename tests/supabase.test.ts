@@ -143,17 +143,22 @@ describe("Supabase migration and RLS", () => {
       asUser(bob, () => pg.exec("update public.spaces set payload='{}'")),
     ).rejects.toThrow(/permission/i);
   });
-  it("restricts official updates and enforces sequential status changes", async () => {
+  it("restricts official updates and allows direct admin status choices", async () => {
     await expect(
       asUser(alice, () => rpc("update_report", ["private", "Assigned", ""])),
     ).rejects.toThrow(/Administrator/);
+    const resolved = await asUser(admin, () =>
+      rpc("update_report", ["private", "Resolved", ""]),
+    );
+    expect(resolved.status).toBe("Resolved");
     await expect(
-      asUser(admin, () => rpc("update_report", ["private", "Resolved", ""])),
-    ).rejects.toThrow(/next status/);
+      asUser(admin, () => rpc("update_report", ["private", "Rejected", ""])),
+    ).rejects.toThrow(/reason/);
     const result = await asUser(admin, () =>
       rpc("update_report", ["private", "Assigned", "Assigned to IT."]),
     );
-    expect(result.timeline).toHaveLength(2);
+    expect(result.timeline).toHaveLength(3);
+    expect(result.resolvedAt).toBeNull();
     expect(result.comments[0].authorUid).toBe(admin);
   });
   it("protects pending contacts, then shares only with approved participants", async () => {
@@ -287,5 +292,257 @@ describe("Supabase migration and RLS", () => {
         pg.exec("update public.wellness_daily set total=999"),
       ),
     ).rejects.toThrow(/permission/i);
+  });
+});
+
+describe("report controls, campus sharing and space administration", () => {
+  it("validates manual Other details and uses the server's reporter name", async () => {
+    const r = report(alice);
+    r.safeDetails.topic = "Other" as never;
+    await expect(
+      asUser(alice, () => rpc("submit_report", ["other-invalid", r])),
+    ).rejects.toThrow(/Other/);
+    const valid = await asUser(alice, () =>
+      rpc("submit_report", [
+        "other-valid",
+        {
+          ...r,
+          customDetails: { topic: "Lift access issue", item: "", color: "" },
+          reporterName: "Forged name",
+          contactNumber: "9876543210",
+          contactAddress: "Library desk",
+          visibility: "campus",
+        },
+      ]),
+    );
+    expect(valid.reporterName).toBe("Alice");
+    const rows = await asUser(bob, () =>
+      pg.query<{ payload: any }>(
+        "select payload from public.reports where id='other-valid'",
+      ),
+    );
+    expect(rows.rows[0].payload.contactNumber).toBe("9876543210");
+  });
+  it("keeps old private reports and grievances restricted", async () => {
+    expect(
+      (
+        await asUser(bob, () =>
+          pg.query("select id from public.reports where id='private'"),
+        )
+      ).rows,
+    ).toHaveLength(0);
+    const r = await asUser(alice, () =>
+      rpc("submit_report", [
+        "private-grievance",
+        { ...report(alice, "grievance"), visibility: "campus" },
+      ]),
+    );
+    expect(r.visibility).toBe("private");
+    expect(
+      (
+        await asUser(bob, () =>
+          pg.query(
+            "select id from public.reports where id='private-grievance'",
+          ),
+        )
+      ).rows,
+    ).toHaveLength(0);
+  });
+  it("lets admins reject directly with a bounded explanation", async () => {
+    const r = await asUser(admin, () =>
+      rpc("update_report", [
+        "other-valid",
+        "Rejected",
+        "Duplicate report; linked to the existing repair.",
+      ]),
+    );
+    expect(r.status).toBe("Rejected");
+    expect(r.timeline.at(-1).status).toBe("Rejected");
+    expect(r.resolvedAt).toBeNull();
+    await expect(
+      asUser(bob, () => rpc("update_report", ["other-valid", "Assigned", ""])),
+    ).rejects.toThrow();
+  });
+  it("allows only the owner to complete an open lost item and rejects pending claims", async () => {
+    await asUser(alice, () =>
+      rpc("submit_report", ["close-lost", report(alice, "lost")]),
+    );
+    await asUser(bob, () =>
+      rpc("submit_report", ["close-found", report(bob, "found")]),
+    );
+    await asUser(alice, () =>
+      rpc("request_claim", [
+        "close-found",
+        "close-lost",
+        "A tiny scratch beside the lid.",
+        "owner@example.test",
+      ]),
+    );
+    await expect(
+      asUser(bob, () =>
+        rpc("manage_own_report", ["close-lost", "complete", {}]),
+      ),
+    ).rejects.toThrow(/reporter/);
+    await asUser(alice, () =>
+      rpc("manage_own_report", ["close-lost", "complete", {}]),
+    );
+    const r = (
+      await asUser(bob, () =>
+        pg.query<{ payload: any }>(
+          "select payload from public.reports where id='close-lost'",
+        ),
+      )
+    ).rows[0].payload;
+    expect(r.status).toBe("Completed");
+    expect(r.resolvedAt).toBeGreaterThan(0);
+    const c = (
+      await asUser(bob, () =>
+        pg.query<{ status: string }>(
+          "select status from public.claims where id='close-found__close-lost'",
+        ),
+      )
+    ).rows[0];
+    expect(c.status).toBe("rejected");
+    await expect(
+      asUser(bob, () =>
+        rpc("decide_claim", [
+          "close-found__close-lost",
+          true,
+          "finder@example.test",
+        ]),
+      ),
+    ).rejects.toThrow();
+  });
+  it("hides deleted reports from every app reader and prevents further writes", async () => {
+    await asUser(alice, () =>
+      rpc("submit_report", ["to-delete", report(alice, "lost")]),
+    );
+    await expect(
+      asUser(admin, () =>
+        rpc("manage_own_report", ["to-delete", "delete", {}]),
+      ),
+    ).rejects.toThrow();
+    await asUser(alice, () =>
+      rpc("manage_own_report", ["to-delete", "delete", {}]),
+    );
+    for (const uid of [alice, bob, admin])
+      expect(
+        (
+          await asUser(uid, () =>
+            pg.query("select id from public.reports where id='to-delete'"),
+          )
+        ).rows,
+      ).toHaveLength(0);
+    await expect(
+      asUser(admin, () => rpc("update_report", ["to-delete", "Assigned", ""])),
+    ).rejects.toThrow();
+    expect(
+      (
+        await pg.query<{ deleted_at: number }>(
+          "select deleted_at from public.reports where id='to-delete'",
+        )
+      ).rows[0].deleted_at,
+    ).toBeGreaterThan(0);
+  });
+  it("requires the reporter to choose sharing and validates contact updates", async () => {
+    await expect(
+      asUser(bob, () =>
+        rpc("manage_own_report", [
+          "private",
+          "details",
+          { visibility: "campus" },
+        ]),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asUser(alice, () =>
+        rpc("manage_own_report", [
+          "private",
+          "details",
+          { contactNumber: "bad" },
+        ]),
+      ),
+    ).rejects.toThrow();
+    await asUser(alice, () =>
+      rpc("manage_own_report", [
+        "private",
+        "details",
+        {
+          contactNumber: "9876543210",
+          contactAddress: "IT desk",
+          visibility: "campus",
+        },
+      ]),
+    );
+    const r = (
+      await asUser(bob, () =>
+        pg.query<{ payload: any }>(
+          "select payload from public.reports where id='private'",
+        ),
+      )
+    ).rows[0].payload;
+    expect(r.reporterName).toBe("Alice");
+    expect(r.contactAddress).toBe("IT desk");
+  });
+  it("allows admins to add real campus spaces with unknown initial occupancy", async () => {
+    const space = {
+      name: "New Computer Lab",
+      type: "lab",
+      zone: "Learning Centre Block C",
+      quiet: true,
+    };
+    await expect(
+      asUser(alice, () => rpc("create_campus_space", ["new-lab", space])),
+    ).rejects.toThrow(/Administrator/);
+    const created = await asUser(admin, () =>
+      rpc("create_campus_space", ["new-lab", space]),
+    );
+    expect(created.level).toBeNull();
+    expect(created.reportCount).toBe(0);
+    expect(created.demo).toBe(false);
+    expect(
+      (
+        await asUser(bob, () =>
+          pg.query("select id from public.spaces where id='new-lab'"),
+        )
+      ).rows,
+    ).toHaveLength(1);
+  });
+  it("shares team posts with all students independent of RSVP", async () => {
+    await asUser(admin, () =>
+      rpc("create_event", [
+        "board-event",
+        {
+          title: "Campus open workshop",
+          club: "Coding Club",
+          date: Date.now() + 86400000,
+          venue: "Main auditorium",
+          description:
+            "An open workshop for all campus students to form teams.",
+          tags: ["Workshop"],
+        },
+      ]),
+    );
+    const post = await asUser(alice, () =>
+      rpc("create_team_post", [
+        "board-post",
+        {
+          eventId: "board-event",
+          kind: "looking",
+          skills: ["Frontend"],
+          roles: [],
+          theme: "Open innovation",
+          idea: "Building an inclusive campus resource app.",
+        },
+      ]),
+    );
+    expect(post.ownerName).toBe("Alice");
+    expect(
+      (
+        await asUser(bob, () =>
+          pg.query("select id from public.team_posts where id='board-post'"),
+        )
+      ).rows,
+    ).toHaveLength(1);
   });
 });

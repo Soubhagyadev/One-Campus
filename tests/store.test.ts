@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/services/supabase", () => ({ supabase: null }));
-import { castVote, history, readLocal } from "../src/services/store";
+import {
+  castVote,
+  history,
+  readLocal,
+  createSpace,
+} from "../src/services/store";
 beforeEach(() => {
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
@@ -36,4 +41,23 @@ describe("demo crowd reporting service", () => {
     await castVote(readLocal().spaces[0], "student-b", "moderate");
     expect(listener).toHaveBeenCalledOnce();
   });
+});
+
+it("allows only admins to add a space without inventing crowd reports", async () => {
+  const input = {
+    name: "New reading room",
+    type: "library" as const,
+    zone: "Library third floor",
+    quiet: true,
+  };
+  await expect(
+    createSpace({ uid: "student", name: "Student", role: "student" }, input),
+  ).rejects.toThrow();
+  const r = await createSpace(
+    { uid: "admin", name: "Admin", role: "admin" },
+    input,
+  );
+  expect(r?.level).toBeNull();
+  expect(r?.reportCount).toBe(0);
+  expect(readLocal().spaces.some((s) => s.id === r?.id)).toBe(true);
 });

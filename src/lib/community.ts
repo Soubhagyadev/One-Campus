@@ -68,6 +68,7 @@ export const teamSchema = z
   });
 export type TeamDraft = z.infer<typeof teamSchema>;
 export type TeamPost = TeamDraft & {
+  ownerName?: string;
   id: string;
   ownerUid: string;
   createdAt: number;

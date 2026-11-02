@@ -1,0 +1,21 @@
+-- Every synthetic account, report, and space below is rolled back. No signup email is sent.
+begin;
+insert into auth.users(id,email,raw_user_meta_data) values ('f8844101-f888-4888-8888-888888888801','qa-controls-a@onecampus.example','{"name":"QA Reporter"}'),('f8844101-f888-4888-8888-888888888802','qa-controls-b@onecampus.example','{"name":"QA Student"}'),('f8844101-f888-4888-8888-888888888803','qa-controls-c@onecampus.example','{"name":"QA Admin"}');
+update public.profiles set role='admin' where id='f8844101-f888-4888-8888-888888888803';
+set local role authenticated;
+select set_config('request.jwt.claim.sub','f8844101-f888-4888-8888-888888888801',true);
+select public.submit_report('qa-controls-lost',$report${"ownerUid": "f8844101-f888-4888-8888-888888888801", "type": "lost", "category": "Other", "department": "Administration", "priority": "medium", "title": "Synthetic report workflow check", "description": "A synthetic report used only in a rolled-back verification transaction.", "location": "Library help desk", "image": "", "photoSafe": false, "safeDetails": {"intent": "lost", "topic": "Other", "item": "Other item", "color": "Not specified", "feature": "Not specified", "urgency": "medium"}, "customDetails": {"topic": "Access card question", "item": "Scientific calculator", "color": ""}, "contactNumber": "9999999999", "contactAddress": "Campus help desk", "visibility": "campus", "status": "Submitted", "deadline": 0, "aiSummary": "Route this synthetic report to campus administration.", "aiSource": "Local fallback", "matchSource": "Local fallback", "comments": [], "matches": [], "timeline": [], "createdAt": 0, "resolvedAt": null, "demo": false}$report$::jsonb);
+select public.submit_report('qa-controls-issue',$report${"ownerUid": "f8844101-f888-4888-8888-888888888801", "type": "issue", "category": "Other", "department": "Administration", "priority": "medium", "title": "Synthetic report workflow check", "description": "A synthetic report used only in a rolled-back verification transaction.", "location": "Library help desk", "image": "", "photoSafe": false, "safeDetails": {"intent": "issue", "topic": "Other", "item": "Other item", "color": "Not specified", "feature": "Not specified", "urgency": "medium"}, "customDetails": {"topic": "Access card question", "item": "Scientific calculator", "color": ""}, "contactNumber": "9999999999", "contactAddress": "Campus help desk", "visibility": "campus", "status": "Submitted", "deadline": 0, "aiSummary": "Route this synthetic report to campus administration.", "aiSource": "Local fallback", "matchSource": "Local fallback", "comments": [], "matches": [], "timeline": [], "createdAt": 0, "resolvedAt": null, "demo": false}$report$::jsonb);
+select set_config('request.jwt.claim.sub','f8844101-f888-4888-8888-888888888802',true);
+do $$ declare r jsonb; begin select payload into strict r from public.reports where id='qa-controls-issue'; assert r->>'reporterName'='QA Reporter' and r->>'contactNumber'='9999999999'; end $$;
+select set_config('request.jwt.claim.sub','f8844101-f888-4888-8888-888888888803',true);
+select public.update_report('qa-controls-issue','Rejected','Synthetic duplicate report.');
+select public.create_campus_space('qa-controls-space','{"name":"Synthetic QA lab","zone":"Temporary QA zone","type":"lab","quiet":true}');
+select set_config('request.jwt.claim.sub','f8844101-f888-4888-8888-888888888801',true);
+select public.manage_own_report('qa-controls-lost','complete','{}');
+do $$ begin assert exists(select 1 from public.reports where id='qa-controls-lost' and status='Completed'); assert exists(select 1 from public.reports where id='qa-controls-issue' and status='Rejected'); end $$;
+select public.manage_own_report('qa-controls-issue','delete','{}');
+select set_config('request.jwt.claim.sub','f8844101-f888-4888-8888-888888888802',true);
+do $$ begin assert not exists(select 1 from public.reports where id='qa-controls-issue'); assert exists(select 1 from public.spaces where id='qa-controls-space' and payload->'level'='null'::jsonb); end $$;
+select true as report_controls_verified;
+rollback;
