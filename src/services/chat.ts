@@ -64,7 +64,7 @@ Here is everything you know about the OneCampus app and campus:
 - Google sign-in also available.
 - New accounts are always students.
 
-Keep answers short and friendly. Use the live campus data below when answering specific questions about current events, open meals, spaces, or listings. If asked about something outside the app or campus, politely redirect.`;
+Keep answers short and friendly. Use the live campus data below when answering specific questions about current events, open meals, spaces, or listings. If asked about something outside the app or campus, politely redirect. Do not use markdown formatting like **bold**, *italics*, or bullet points with dashes — respond in plain conversational text only.`;
 
 export type ChatMessage = {
   role: "user" | "model";
