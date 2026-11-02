@@ -9,13 +9,18 @@ A working four-phase campus app: live library/lab crowd reports, unified reporti
 Use Node 22.12+:
 
 ```sh
+git clone https://github.com/Soubhagyadev/One-Campus.git
+cd One-Campus
 npm ci
+cp .env.example .env.local
 npm run dev
 ```
 
-Open Vite's Local URL. The ignored `.env.local` is already configured with the supplied Supabase URL and publishable key. **No database password, secret key, or service-role key is used by the browser.** The PostgreSQL connection string containing `[YOUR-PASSWORD]` is not used.
+Open **http://localhost:5173**. On Windows PowerShell, use `Copy-Item .env.example .env.local` instead of `cp` if needed. The committed `.env.example` already contains the shared OneCampus project's URL and browser-safe publishable key. Copying it connects your checkout to the same live database and authentication service; no Supabase project creation or migrations are needed.
 
-For another checkout, copy `.env.example` to `.env.local` and supply:
+**No database password, Google client secret, secret key, or service-role key is used by the browser or included in this repository.** The publishable key identifies the project; signed-in permissions and RLS determine access. Changes made while signed in affect this shared test database and are visible to other accounts according to their permissions.
+
+To use your own separate Supabase project instead, replace these values in `.env.local` and apply the migrations to that project:
 
 ```ini
 VITE_SUPABASE_URL=https://your-project.supabase.co
@@ -23,13 +28,14 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
 VITE_DEMO_MODE=false
 ```
 
-Changing `.env.local` requires restarting Vite. Keep it out of Git and `dist`.
+Changing `.env.local` requires restarting Vite. Keep it out of Git. Vite includes `VITE_` values in its browser bundle, so use only browser-safe values there.
 
 ### Accounts
 
 - Select **New here? Create a student account**, enter your email and a password of at least eight characters, and confirm the email before signing in. Email sign-up and email confirmation are enabled in the connected project.
 - New accounts always receive a `profiles` row with role `student`. User-editable metadata cannot grant admin access.
-- **Google is currently disabled** in the connected project's Auth settings. The login page labels it unavailable. To enable it, configure Google's OAuth credentials in Supabase → Authentication → Sign In / Providers and use Supabase's displayed callback URL. Add the app's `/login` URL to Supabase's allowed redirect URLs. Do not put Google client secrets into Vite variables.
+- **Google sign-in is enabled** on the shared project. The front-page button has been verified to reach Google sign-in with the correct client and Supabase callback. Complete Google sign-in using your own account. If Google's consent screen is in Testing mode, the project owner must add your Google email to its test users before you can authorize it.
+- Use `http://localhost:5173` for local Google testing. If Vite reports that this port is occupied, stop the conflicting server and retry. Using another origin or port requires matching Google OAuth origins and Supabase redirect settings; copying this repository does not change those server settings.
 - Under Authentication → URL Configuration, set the intended Site URL and allow local development URLs such as `http://localhost:5173/login` and the production app's `/login` URL. The signup confirmation link must return to an allowed URL.
 - To make your own account an admin, use the Supabase SQL editor after creating/signing in with the account:
 
@@ -51,7 +57,9 @@ Changing `.env.local` requires restarting Vite. Keep it out of Git and `dist`.
 
   Exact club names are in `src/lib/community.ts`. Leads remain students and can create events only for their assigned club.
 
-No real user account was created as part of the integration. You create the first account and select its administrator deliberately.
+The project owner has an admin account and a separate demo admin for testing. Ask the owner to share the demo admin credentials privately if you need to test administration, or have the owner promote your own signed-in account. Account passwords and user records are managed in Supabase, not copied through Git. A normal new signup remains a student.
+
+Cloning gives you the same application and shared backend. Your signed-in account determines which data you see. Browser-only wellness notes, local demo data, and login sessions remain on each person's device. Optional AI features use labeled local fallbacks unless you separately configure Firebase AI Logic below.
 
 ### Local demo mode
 
