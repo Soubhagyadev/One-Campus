@@ -11,6 +11,7 @@ import {
   ArrowUpRight,
   PackageCheck,
   Pencil,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -269,6 +270,32 @@ export default function Marketplace() {
                     onClick={() => beginEdit(l)}
                   >
                     <Pencil size={15} /> Edit listing
+                  </Button>
+                )}
+                {l.seller_id === user!.uid && l.status === "available" && !admin && (
+                  <Button
+                    variant="ghost"
+                    className="wide commerce-danger"
+                    disabled={busy}
+                    onClick={() => {
+                      if (confirm(`Remove "${l.title}" from the marketplace?`))
+                        void change(l, "removed");
+                    }}
+                  >
+                    <Trash2 size={15} /> Remove listing
+                  </Button>
+                )}
+                {l.seller_id === user!.uid && l.status === "available" && !admin && (
+                  <Button
+                    variant="ghost"
+                    className="wide commerce-danger"
+                    disabled={busy}
+                    onClick={() => {
+                      if (confirm(`Remove "${l.title}" from the marketplace?`))
+                        void change(l, "removed");
+                    }}
+                  >
+                    <Trash2 size={15} /> Remove listing
                   </Button>
                 )}
                 {view === "manage" && l.status === "available" && (
