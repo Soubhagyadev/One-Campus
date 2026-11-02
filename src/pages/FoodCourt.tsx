@@ -266,9 +266,9 @@ export default function FoodCourt() {
                     )}
                   </div>
                   <Button
-                    className={open ? "primary wide" : "wide"}
-                    variant={open ? "default" : "outline"}
-                    disabled={!open || !items.length || busy}
+                    className={open && !admin ? "primary wide" : "wide"}
+                    variant={open && !admin ? "default" : "outline"}
+                    disabled={!open || !items.length || busy || admin}
                     onClick={() =>
                       action(
                         () =>
@@ -280,7 +280,7 @@ export default function FoodCourt() {
                       )
                     }
                   >
-                    {open ? "View meal & continue" : "Outside serving hours"}
+                    {admin ? "Admin view only" : open ? "View meal & continue" : "Outside serving hours"}
                     <ArrowRight size={15} />
                   </Button>
                 </article>
