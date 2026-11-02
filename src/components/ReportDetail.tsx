@@ -33,6 +33,7 @@ import {
   requestClaim,
   updateReport,
   manageOwnReport,
+  editOwnReport,
 } from "@/services/reports";
 import { isOverdue, terminalReport, reportDate } from "@/lib/reports";
 import type {
@@ -296,7 +297,7 @@ export function ReportDetail({
                   disabled={busy}
                   onClick={() => setEditingContacts(!editingContacts)}
                 >
-                  <Pencil size={15} /> Edit contact details
+                  <Pencil size={15} /> Edit report
                 </Button>
                 {["lost", "found"].includes(report.type) &&
                   !terminalReport(report) && (
@@ -332,7 +333,27 @@ export function ReportDetail({
                     e.preventDefault();
                     const f = new FormData(e.currentTarget);
                     void run(async () => {
-                      await manageOwnReport(user!, report.id, "details", {
+                      await editOwnReport(user!, report.id, {
+                        title: String(f.get("title") || ""),
+                        description: String(f.get("description") || ""),
+                        location: String(f.get("location") || ""),
+                        customDetails: {
+                          topic: String(
+                            f.get("custom-topic") ??
+                              report.customDetails?.topic ??
+                              "",
+                          ),
+                          item: String(
+                            f.get("custom-item") ??
+                              report.customDetails?.item ??
+                              "",
+                          ),
+                          color: String(
+                            f.get("custom-color") ??
+                              report.customDetails?.color ??
+                              "",
+                          ),
+                        },
                         contactNumber: String(f.get("phone") || ""),
                         contactAddress: String(f.get("address") || ""),
                         visibility:
@@ -345,9 +366,61 @@ export function ReportDetail({
                               : "campus",
                       });
                       setEditingContacts(false);
-                    }, "Contact details updated.");
+                    }, "Report changes saved.");
                   }}
                 >
+                  <label>
+                    Title
+                    <input
+                      name="title"
+                      defaultValue={report.title}
+                      minLength={5}
+                      maxLength={120}
+                      required
+                    />
+                  </label>
+                  <label>
+                    What happened?
+                    <textarea
+                      name="description"
+                      defaultValue={report.description}
+                      minLength={15}
+                      maxLength={3000}
+                      rows={4}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Campus location
+                    <input
+                      name="location"
+                      defaultValue={report.location}
+                      minLength={2}
+                      maxLength={120}
+                      required
+                    />
+                  </label>
+                  {(
+                    [
+                      ["topic", "Other"],
+                      ["item", "Other item"],
+                      ["color", "Other color"],
+                    ] as const
+                  ).map(
+                    ([key, sentinel]) =>
+                      report.safeDetails[key] === sentinel && (
+                        <label key={key}>
+                          Describe the other {key}
+                          <input
+                            name={`custom-${key}`}
+                            defaultValue={report.customDetails?.[key] || ""}
+                            minLength={2}
+                            maxLength={120}
+                            required
+                          />
+                        </label>
+                      ),
+                  )}
                   <label>
                     Contact number
                     <input
@@ -386,7 +459,17 @@ export function ReportDetail({
                     Contact details on a shared post are visible to signed-in
                     students. Grievances remain private.
                   </p>
-                  <Button disabled={busy}>Save contact details</Button>
+                  <div className="action-row">
+                    <Button disabled={busy}>Save report changes</Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => setEditingContacts(false)}
+                    >
+                      Cancel editing
+                    </Button>
+                  </div>
                 </form>
               )}
               {deleting && (

@@ -6,6 +6,7 @@ import {
   deadlineFor,
   draftSchema,
   terminalReport,
+  reportEditSchema,
   visibleReports,
 } from "@/lib/reports";
 import type {
@@ -487,5 +488,43 @@ export async function manageOwnReport(
         c.decidedAt = now;
       }
     });
+  persist(data);
+}
+
+export async function editOwnReport(
+  user: Profile,
+  id: string,
+  input: import("@/lib/reports").ReportEdit,
+) {
+  const edit = reportEditSchema.parse(input);
+  if (db) {
+    await callRpc("edit_own_report", { p_id: id, p_details: edit });
+    return;
+  }
+  const data = readReportLocal(),
+    r = data.reports.find((r) => r.id === id && !r.deletedAt);
+  if (!r || r.ownerUid !== user.uid)
+    throw new Error("Only the reporter may edit this report.");
+  const validated = draftSchema.parse({
+    title: edit.title,
+    description: edit.description,
+    location: edit.location,
+    image: r.image,
+    photoSafe: r.photoSafe,
+    safeDetails: r.safeDetails,
+    customDetails: edit.customDetails ?? r.customDetails,
+    contactNumber: edit.contactNumber ?? r.contactNumber,
+    contactAddress: edit.contactAddress ?? r.contactAddress,
+    visibility: edit.visibility ?? r.visibility,
+  });
+  Object.assign(r, validated, {
+    reporterName: user.name,
+    visibility:
+      r.type === "grievance"
+        ? "private"
+        : r.type === "issue"
+          ? (validated.visibility ?? "private")
+          : "campus",
+  });
   persist(data);
 }

@@ -369,3 +369,27 @@ export async function collectOrder(user: Profile, id: string) {
   save(local);
   return o;
 }
+
+export async function editListing(
+  user: Profile,
+  id: string,
+  input: ListingDraft,
+) {
+  const edit = listingSchema.parse(input);
+  if (db)
+    return callRpc<Listing>("edit_marketplace_listing", {
+      p_id: id,
+      p_data: edit,
+    });
+  const data = read(),
+    r = data.listings.find((l) => l.id === id);
+  if (!r || r.seller_id !== user.uid)
+    throw new Error("Only the seller may edit this listing.");
+  if (r.status !== "available")
+    throw new Error(
+      "Only available listings can be edited. Sold or removed listings stay closed.",
+    );
+  Object.assign(r, edit, { updated_at: Date.now() });
+  save(data);
+  return r;
+}

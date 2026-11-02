@@ -10,6 +10,7 @@ import {
   updateReport,
   readReportLocal,
   manageOwnReport,
+  editOwnReport,
 } from "../src/services/reports";
 import {
   deadlineFor,
@@ -226,4 +227,28 @@ describe("reporter controls and sharing", () => {
     )!;
     expect(shared.contactAddress).toBe("Lab reception");
   });
+});
+
+it("edits only the reporter's own content while preserving workflow and ownership", async () => {
+  const r = await submitReport(student, {
+    ...draft,
+    safeDetails: { ...draft.safeDetails, intent: "issue" },
+  });
+  await updateReport(admin, r.id, "In Progress", "Team is checking this.");
+  const input = {
+    title: "Updated report title",
+    description: "Updated description with clearer details for the team.",
+    location: "Library second floor",
+    contactNumber: "9876543210",
+    contactAddress: "Campus help desk",
+    visibility: "campus" as const,
+  };
+  await expect(editOwnReport(finder, r.id, input)).rejects.toThrow(/reporter/);
+  await editOwnReport(student, r.id, input);
+  const edited = readReportLocal().reports.find((p) => p.id === r.id)!;
+  expect(edited.title).toBe(input.title);
+  expect(edited.status).toBe("In Progress");
+  expect(edited.ownerUid).toBe(student.uid);
+  expect(edited.createdAt).toBe(r.createdAt);
+  expect(edited.comments).toHaveLength(1);
 });

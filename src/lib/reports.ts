@@ -155,6 +155,18 @@ export const draftSchema = z
         });
   });
 export type ReportDraft = z.infer<typeof draftSchema>;
+export const reportEditSchema = z
+  .object({
+    title: draftSchema.shape.title,
+    description: draftSchema.shape.description,
+    location: draftSchema.shape.location,
+    contactNumber: draftSchema.shape.contactNumber,
+    contactAddress: draftSchema.shape.contactAddress,
+    visibility: draftSchema.shape.visibility,
+    customDetails: draftSchema.shape.customDetails,
+  })
+  .strict();
+export type ReportEdit = z.infer<typeof reportEditSchema>;
 export const triageSchema = z
   .object({
     type: z.enum(REPORT_TYPES),

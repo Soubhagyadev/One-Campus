@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   ArrowUpRight,
   PackageCheck,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +22,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useMarketplace } from "@/hooks/useCommerce";
-import { postListing, changeListing } from "@/services/commerce";
+import { postListing, changeListing, editListing } from "@/services/commerce";
 import { MARKET_CATEGORIES, listingSchema, money, when } from "@/lib/commerce";
 import type { Listing } from "@/lib/commerce";
 import { compressPhoto } from "@/lib/photo";
@@ -34,6 +35,7 @@ export default function Marketplace() {
     [search, setSearch] = useState(""),
     [category, setCategory] = useState("All"),
     [create, setCreate] = useState(false),
+    [editing, setEditing] = useState<Listing | null>(null),
     [selected, setSelected] = useState<Listing | null>(null),
     [removing, setRemoving] = useState<Listing | null>(null),
     [photos, setPhotos] = useState<string[]>([]),
@@ -76,6 +78,13 @@ export default function Marketplace() {
       setBusy(false);
     }
   }
+  function beginEdit(l: Listing) {
+    setEditing(l);
+    setPhotos([...l.images]);
+    setSelected(null);
+    setFormError("");
+    setCreate(true);
+  }
   return (
     <>
       <div className="page-heading">
@@ -89,6 +98,7 @@ export default function Marketplace() {
         <Button
           className="primary"
           onClick={() => {
+            setEditing(null);
             setPhotos([]);
             setFormError("");
             setCreate(true);
@@ -194,6 +204,7 @@ export default function Marketplace() {
           <Button
             variant="outline"
             onClick={() => {
+              setEditing(null);
               setPhotos([]);
               setFormError("");
               setCreate(true);
@@ -251,6 +262,15 @@ export default function Marketplace() {
                 >
                   View item <ArrowUpRight size={15} />
                 </Button>
+                {l.seller_id === user!.uid && l.status === "available" && (
+                  <Button
+                    variant="ghost"
+                    className="wide"
+                    onClick={() => beginEdit(l)}
+                  >
+                    <Pencil size={15} /> Edit listing
+                  </Button>
+                )}
                 {view === "manage" && l.status === "available" && (
                   <Button
                     variant="ghost"
@@ -286,12 +306,16 @@ export default function Marketplace() {
         }}
       >
         <DialogContent className="report-dialog">
-          <DialogTitle>Give it a second chapter.</DialogTitle>
+          <DialogTitle>
+            {editing ? "Edit your listing" : "Give it a second chapter."}
+          </DialogTitle>
           <DialogDescription>
-            Create a listing visible to signed-in students immediately. Your
-            contact number is shared with campus buyers.
+            {editing
+              ? "Update the item details or photos. Your changes appear to campus buyers immediately."
+              : "Create a listing visible to signed-in students immediately. Your contact number is shared with campus buyers."}
           </DialogDescription>
           <form
+            key={editing?.id || "new-listing"}
             className="commerce-form"
             onSubmit={async (e) => {
               e.preventDefault();
@@ -310,10 +334,13 @@ export default function Marketplace() {
               try {
                 if (!parsed.success)
                   throw new Error(parsed.error.issues[0].message);
-                await postListing(user!, parsed.data);
+                if (editing) await editListing(user!, editing.id, parsed.data);
+                else await postListing(user!, parsed.data);
                 setCreate(false);
                 setMessage(
-                  "Your listing is live. Other students can see it now.",
+                  editing
+                    ? "Listing changes saved. Other students can see the updates now."
+                    : "Your listing is live. Other students can see it now.",
                 );
               } catch (e) {
                 setFormError((e as Error).message);
@@ -326,6 +353,7 @@ export default function Marketplace() {
               Item title
               <input
                 name="title"
+                defaultValue={editing?.title || ""}
                 placeholder="e.g. Computer Networks textbook"
                 minLength={3}
                 maxLength={100}
@@ -335,7 +363,10 @@ export default function Marketplace() {
             <div className="commerce-form-row">
               <label>
                 Category
-                <select name="category">
+                <select
+                  name="category"
+                  defaultValue={editing?.category || "Textbooks"}
+                >
                   {MARKET_CATEGORIES.map((c) => (
                     <option key={c}>{c}</option>
                   ))}
@@ -345,6 +376,7 @@ export default function Marketplace() {
                 Price (₹)
                 <input
                   name="price"
+                  defaultValue={editing ? Number(editing.price) : ""}
                   type="number"
                   min="0"
                   max="100000"
@@ -358,6 +390,7 @@ export default function Marketplace() {
               Description
               <textarea
                 name="description"
+                defaultValue={editing?.description || ""}
                 placeholder="Condition, edition and where you can meet…"
                 minLength={10}
                 maxLength={2000}
@@ -369,6 +402,7 @@ export default function Marketplace() {
               Contact number
               <input
                 name="contact"
+                defaultValue={editing?.contact || ""}
                 type="tel"
                 autoComplete="tel"
                 placeholder="10–15 digits, optional + prefix"
@@ -440,7 +474,13 @@ export default function Marketplace() {
               </p>
             )}
             <Button className="primary wide" disabled={busy || photoBusy}>
-              {busy ? "Publishing…" : "Publish listing"}
+              {busy
+                ? editing
+                  ? "Saving…"
+                  : "Publishing…"
+                : editing
+                  ? "Save listing changes"
+                  : "Publish listing"}
               <ArrowUpRight size={16} />
             </Button>
           </form>
@@ -499,6 +539,16 @@ export default function Marketplace() {
                   Removal reason: {current.removal_reason}
                 </p>
               )}
+              {current.status === "available" &&
+                current.seller_id === user!.uid && (
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => beginEdit(current)}
+                  >
+                    <Pencil size={15} /> Edit listing
+                  </Button>
+                )}
               {current.status === "available" &&
                 current.seller_id === user!.uid && (
                   <Button

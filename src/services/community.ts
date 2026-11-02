@@ -209,3 +209,21 @@ export async function createTeam(user: Profile, input: TeamDraft) {
   }
   return post;
 }
+
+export async function editTeam(user: Profile, id: string, input: TeamDraft) {
+  const draft = teamSchema.parse(input);
+  if (db)
+    return callRpc<TeamPost>("edit_team_post", { p_id: id, p_post: draft });
+  const data = readCommunity(),
+    r = data.posts.find((p) => p.id === id);
+  if (!r || r.ownerUid !== user.uid)
+    throw new Error("Only the author may edit this team request.");
+  if (r.eventId !== draft.eventId)
+    throw new Error("A team request cannot move to another event.");
+  const event = data.events.find((e) => e.id === r.eventId);
+  if (!event || event.date <= Date.now())
+    throw new Error("Team editing is closed for this event.");
+  Object.assign(r, draft, { ownerName: user.name });
+  save(data);
+  return r;
+}

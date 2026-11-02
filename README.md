@@ -74,7 +74,7 @@ Demo mode is explicit. Network/auth/database errors do not silently route real a
 ## Campus Marketplace
 
 - Open **Marketplace** in the sidebar. Students can publish a title, description, category, price, contact number, and up to three photos. JPEG/PNG/WebP files are re-encoded as JPEG (maximum 800px edge / 200 KB each) and saved with the listing in Supabase; no Storage bucket setup is needed.
-- Listings are **available immediately**, with no approval queue. Signed-in students can search/filter, open item details, and contact sellers. Sellers can mark their own listings sold or remove them. Contact numbers are intentionally shared with signed-in campus buyers.
+- Listings are **available immediately**, with no approval queue. Signed-in students can search/filter, open item details, and contact sellers. Sellers can **Edit listing** from the card or item details to update title, description, category, price, phone, and add/remove photos. The same record updates immediately without resetting its identity or creation time. Only available listings can be edited; sold/removed listings cannot bypass closure or moderation. Sellers can also mark their own listings sold or remove them. Contact numbers are intentionally shared with signed-in campus buyers.
 - Admins use **Moderate posts** to inspect all listings and remove spam, inappropriate or suspected fraudulent posts with a reason. Removed listings disappear from other students' queries; sellers can still see the removal reason in **My listings**. Moderation uses soft removal so the record remains available to admins.
 - Marketplace sales/payment happen directly between buyer and seller. The app does not process marketplace payments.
 
@@ -126,10 +126,10 @@ No Firestore data was copied automatically. The previously used browser demo rec
 
 ## Migrations and verification
 
-Migrations are in `supabase/migrations/` and were created with the Supabase CLI. The initial schema, historical-space index, marketplace/food-court, and report-controls/team-board/space-management migrations have been applied to the connected project. Do not re-run an already applied migration directly; use migration history for another environment.
+Migrations are in `supabase/migrations/` and were created with the Supabase CLI. The initial schema, historical-space index, marketplace/food-court, report-controls/team-board/space-management, and owner-only student-editing migrations have been applied to the connected project. Do not re-run an already applied migration directly; use migration history for another environment.
 
 ```sh
-npm test                 # 70 application/privacy and PostgreSQL integration tests
+npm test                 # 76 application/privacy and PostgreSQL integration tests
 npm run test:database    # real PostgreSQL engine via PGlite; no Docker/cloud credentials needed
 npm run test:rules       # compatibility alias for the active PostgreSQL/RLS tests
 npm run build            # TypeScript + production build
@@ -138,9 +138,11 @@ npm run preview
 
 `tests/supabase.test.ts` applies the migration to an isolated PostgreSQL-compatible engine, creates synthetic Auth identities, and exercises role escalation, private visibility, server-owned deadlines, vote replacement, admin comments/statuses, contact approval, club permissions, RSVP idempotency, team input validation, and wellness cohort suppression.
 
-`tests/commerce-database.test.ts` additionally exercises immediate publication, seller identity, image/contact validation, moderation visibility, kitchen permissions, timing enforcement, order isolation, receipt snapshots, payment idempotency, cancellation, expiry, and collection. `tests/commerce.test.ts` checks IST boundaries, overnight windows, and local demo parity. All 70 tests pass.
+`tests/commerce-database.test.ts` additionally exercises immediate publication, seller identity, image/contact validation, moderation visibility, kitchen permissions, timing enforcement, order isolation, receipt snapshots, payment idempotency, cancellation, expiry, and collection. `tests/commerce.test.ts` checks IST boundaries, overnight windows, and local demo parity. All 76 tests pass.
 
 `supabase/commerce-verification.sql` was run on the live database inside a transaction followed by ROLLBACK. It verified immediate listing creation, moderation, server-priced checkout, successful simulated payment, and receipt collection. All synthetic users, listings, orders, and temporary schedule changes were rolled back.
+
+`supabase/student-editing-verification.sql` verified all three edit RPCs on the live database in a rolled-back transaction, including rejection of a non-owner report edit and preservation of official In Progress status. No synthetic users/posts/events remained. Ownership, validation, moderation, and event-boundary tests also run in the PostgreSQL integration suite.
 
 `supabase/report-controls-verification.sql` was run in a rolled-back live transaction. It verified manual Other text, server-owned reporter names, contact visibility to another student, admin rejection, owner completion/deletion, and admin-created spaces. The final check confirmed zero synthetic users/reports/spaces remained.
 
@@ -164,7 +166,8 @@ The retired Firestore rules and tests are in `docs/legacy/` for reference and ar
 ### Unified reporting
 
 - One form for issue/grievance/lost/found, with title, description, location, optional photo, structured routing/item attributes, and manual fields for Other topic/item/color choices. Optional phone and contact address/meeting point are displayed with the report; the reporter name is supplied by their database profile. Custom text and contact details are never sent to AI.
-- New campus issues default to **Campus board**, with an explicit private option. Lost/found posts are shared; grievances remain private. Existing private issues are preserved unless the owner explicitly shares one through **Edit contact details**. Older posts without a name snapshot show Campus member until their owner updates the details.
+- New campus issues default to **Campus board**, with an explicit private option. Lost/found posts are shared; grievances remain private. Existing private issues are preserved unless the owner explicitly shares one through **Edit report**. Older posts without a name snapshot show Campus member until their owner updates the details.
+- Report owners have **Edit report** in the detail view. The prefilled form updates title, description, campus location, manual Other text, contacts, and issue visibility. Status, assigned department, priority, SLA, original creation time, official comments, and ownership remain server-controlled; report edits do not send free text or contacts to AI. Grievances stay private even if a crafted request asks for campus visibility.
 - Report owners can **Delete report** (hidden from all app readers with a database tombstone), edit contact details, and mark an open lost/found post **Completed** when the item is recovered/returned. Pending claims close automatically on completion/deletion.
 - Admins can keep the current status or select **Assigned / In Progress / Resolved / Rejected** directly, including skipping or revising processing steps. Rejection requires an official reason. Timelines display actual transitions, rather than treating rejected/completed as mandatory workflow steps.
 - Photos are re-encoded on the device as metadata-free JPEGs: longest edge ≤800px and binary size ≤200 KB; base64 storage is capped at 300,000 characters. Inputs are limited to 10 MB and 40 megapixels.
@@ -178,7 +181,7 @@ The retired Firestore rules and tests are in `docs/legacy/` for reference and ar
 
 - Events, club filters, descriptions, date/venue/tags, RSVP and withdrawal.
 - Admins create events for any club; assigned club leads create for their club only.
-- Looking for a team / Team needs members posts, skills, needed roles, idea and matching theme. The Events page includes a **Campus team requests** board for every signed-in student, across all upcoming events, independent of RSVP or club filter. Newly submitted posts appear there immediately and include the poster name; each card opens its event for connecting.
+- Looking for a team / Team needs members posts, skills, needed roles, idea and matching theme. The Events page includes a **Campus team requests** board for every signed-in student, across all upcoming events, independent of RSVP or club filter. Newly submitted posts appear there immediately and include the poster name; each card opens its event for connecting. Authors see **Edit your request** on their board card and **Edit team request** inside the event. Both open a prefilled editor for request type, skills, roles, theme, and idea. Edits retain author/creation time and cannot move the request to another event; editing closes when the event ends.
 - Complementary matching uses selected skills/roles/themes, not identities or free-text ideas. Optional poster extraction, messaging, subscriptions, editing/cancellation and invitations are not included.
 
 ### Private wellness

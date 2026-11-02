@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   ArrowRight,
   CalendarDays,
@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ import {
   clubLead,
   createEvent,
   createTeam,
+  editTeam,
   listenEvents,
   listenRsvp,
   listenTeams,
@@ -176,9 +178,11 @@ function EventForm({ lead, onClose }: { lead: string; onClose: () => void }) {
 }
 function EventDetail({
   event,
+  initialEditId,
   onClose,
 }: {
   event: CampusEvent;
+  initialEditId?: string;
   onClose: () => void;
 }) {
   const { user } = useAuth();
@@ -187,7 +191,9 @@ function EventDetail({
     [rsvp, setGoing] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
+    [notice, setNotice] = useState(""),
     [compose, setCompose] = useState(false),
+    [editingPost, setEditingPost] = useState<TeamPost | null>(null),
     [kind, setKind] = useState<"looking" | "recruiting">("looking"),
     [skills, setSkills] = useState<string[]>([]),
     [roles, setRoles] = useState<string[]>([]),
@@ -219,6 +225,25 @@ function EventDetail({
       r();
     };
   }, [event.id, user, version]);
+  const handledEdit = useRef("");
+  function startEdit(post: TeamPost) {
+    setEditingPost(post);
+    setKind(post.kind);
+    setSkills([...post.skills]);
+    setRoles([...post.roles]);
+    setCompose(true);
+    setError("");
+  }
+  useEffect(() => {
+    if (!initialEditId || handledEdit.current === initialEditId) return;
+    const post = posts.find(
+      (p) => p.id === initialEditId && p.ownerUid === user?.uid,
+    );
+    if (post) {
+      handledEdit.current = initialEditId;
+      startEdit(post);
+    }
+  }, [initialEditId, posts, user?.uid]);
   const mine = posts.filter((p) => p.ownerUid === user?.uid);
   const selectedPost = mine.find((p) => p.id === myPostId) || mine[0];
   const past = event.date <= Date.now();
@@ -277,14 +302,27 @@ function EventDetail({
             <Button
               variant="outline"
               disabled={past || busy}
-              onClick={() => setCompose(!compose)}
+              onClick={() => {
+                setCompose(!compose);
+                setEditingPost(null);
+                setKind("looking");
+                setSkills([]);
+                setRoles([]);
+                setError("");
+              }}
             >
               <Plus size={15} />
               Team post
             </Button>
           </div>
+          {notice && (
+            <p role="status" className="success-message">
+              {notice}
+            </p>
+          )}
           {compose && (
             <form
+              key={editingPost?.id || "new-team-post"}
               className="stack-form team-compose"
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -292,7 +330,12 @@ function EventDetail({
                 setBusy(true);
                 setError("");
                 try {
-                  const post = await createTeam(user!, {
+                  const savePost = editingPost
+                    ? (input: Parameters<typeof createTeam>[1]) =>
+                        editTeam(user!, editingPost.id, input)
+                    : (input: Parameters<typeof createTeam>[1]) =>
+                        createTeam(user!, input);
+                  const post = await savePost({
                     eventId: event.id,
                     kind,
                     skills: skills as never,
@@ -301,7 +344,13 @@ function EventDetail({
                     idea: String(form.get("idea")),
                   });
                   setMyPostId(post.id);
+                  setNotice(
+                    editingPost
+                      ? "Team request updated. Your changes are visible on the campus board."
+                      : "Team request posted to the campus board.",
+                  );
                   setCompose(false);
+                  setEditingPost(null);
                   setSkills([]);
                   setRoles([]);
                   setSuggestions(null);
@@ -316,6 +365,7 @@ function EventDetail({
                 }
               }}
             >
+              {editingPost && <h3>Edit your team request</h3>}
               <Label htmlFor="team-kind">What are you looking for?</Label>
               <select
                 id="team-kind"
@@ -345,7 +395,12 @@ function EventDetail({
                 </>
               )}
               <Label htmlFor="team-theme">Idea theme for matching</Label>
-              <select id="team-theme" name="theme" className="native-select">
+              <select
+                id="team-theme"
+                name="theme"
+                className="native-select"
+                defaultValue={editingPost?.theme || THEMES[0]}
+              >
                 {THEMES.map((t) => (
                   <option key={t}>{t}</option>
                 ))}
@@ -354,6 +409,7 @@ function EventDetail({
               <Textarea
                 id="team-idea"
                 name="idea"
+                defaultValue={editingPost?.idea || ""}
                 minLength={15}
                 maxLength={1000}
                 required
@@ -365,7 +421,24 @@ function EventDetail({
                 skills, roles, and the idea theme.
               </p>
               <Button className="primary" disabled={busy}>
-                {busy ? "Posting…" : "Post to team finder"}
+                {busy
+                  ? editingPost
+                    ? "Saving…"
+                    : "Posting…"
+                  : editingPost
+                    ? "Save team changes"
+                    : "Post to team finder"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  setCompose(false);
+                  setEditingPost(null);
+                }}
+              >
+                Cancel
               </Button>
             </form>
           )}
@@ -471,6 +544,16 @@ function EventDetail({
                           (p.demo ? "Demo data" : "Campus student")}
                     </small>
                   </div>
+                  {p.ownerUid === user?.uid && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={busy || past}
+                      onClick={() => startEdit(p)}
+                    >
+                      <Pencil size={14} /> Edit team request
+                    </Button>
+                  )}
                   <h4>{p.theme}</h4>
                   <p>{p.idea}</p>
                   <div className="tag-row">
@@ -506,10 +589,13 @@ function EventDetail({
 function CampusTeamBoard({
   events,
   onSelect,
+  onEdit,
 }: {
   events: CampusEvent[];
   onSelect: (id: string) => void;
+  onEdit: (eventId: string, postId: string) => void;
 }) {
+  const { user } = useAuth();
   const [posts, setPosts] = useState<TeamPost[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
@@ -588,6 +674,11 @@ function CampusTeamBoard({
                   Posted by {p.ownerName || "Campus student"} ·{" "}
                   {reportDate(p.createdAt)}
                 </small>
+                {p.ownerUid === user?.uid && (
+                  <Button variant="outline" onClick={() => onEdit(e.id, p.id)}>
+                    <Pencil size={14} /> Edit your request
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => onSelect(e.id)}>
                   Open event & connect <ArrowRight size={15} />
                 </Button>
@@ -609,6 +700,7 @@ export default function Events() {
     [lead, setLead] = useState<string | null>(null),
     [creating, setCreating] = useState(false),
     [selected, setSelected] = useState<string | null>(null),
+    [selectedTeamId, setSelectedTeamId] = useState<string | undefined>(),
     [version, setVersion] = useState(0);
   useEffect(() => {
     setLoading(true);
@@ -666,7 +758,17 @@ export default function Events() {
         </div>
       </section>
       {!loading && !error && (
-        <CampusTeamBoard events={events} onSelect={setSelected} />
+        <CampusTeamBoard
+          events={events}
+          onSelect={(id) => {
+            setSelectedTeamId(undefined);
+            setSelected(id);
+          }}
+          onEdit={(eventId, postId) => {
+            setSelectedTeamId(postId);
+            setSelected(eventId);
+          }}
+        />
       )}
       <div className="section-heading events-heading">
         <div>
@@ -772,7 +874,11 @@ export default function Events() {
         <EventDetail
           key={event.id}
           event={event}
-          onClose={() => setSelected(null)}
+          initialEditId={selectedTeamId}
+          onClose={() => {
+            setSelected(null);
+            setSelectedTeamId(undefined);
+          }}
         />
       )}
     </>

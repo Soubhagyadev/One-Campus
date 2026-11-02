@@ -8,6 +8,7 @@ import {
 } from "../src/lib/commerce";
 import {
   postListing,
+  editListing,
   changeListing,
   prepareOrder,
   payOrder,
@@ -90,4 +91,36 @@ describe("Commerce time boundaries and demo parity", () => {
     ).rejects.toThrow(/closed/);
     await expect(saveService(student, s)).rejects.toThrow(/Admin/);
   });
+});
+
+it("lets sellers edit their listing and prevents editing after removal", async () => {
+  const input = {
+    title: "A useful textbook",
+    description: "A clean textbook ready for the next semester.",
+    price: 250,
+    category: "Textbooks" as const,
+    contact: "9876543210",
+    images: [],
+  };
+  const listing = await postListing(student, input);
+  await expect(
+    editListing(admin, listing.id, { ...input, price: 200 }),
+  ).rejects.toThrow(/seller/);
+  const edited = await editListing(student, listing.id, {
+    ...input,
+    price: 200,
+    title: "Updated textbook title",
+  });
+  expect(Number(edited.price)).toBe(200);
+  expect(edited.created_at).toBe(listing.created_at);
+  expect(edited.seller_id).toBe(student.uid);
+  await changeListing(
+    admin,
+    listing.id,
+    "removed",
+    "Inappropriate test listing",
+  );
+  await expect(editListing(student, listing.id, input)).rejects.toThrow(
+    /closed/,
+  );
 });

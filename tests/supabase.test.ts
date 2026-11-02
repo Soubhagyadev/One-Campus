@@ -546,3 +546,111 @@ describe("report controls, campus sharing and space administration", () => {
     ).toHaveLength(1);
   });
 });
+
+describe("owner content edits", () => {
+  it("checks report ownership and preserves admin status, timeline and private grievances", async () => {
+    await asUser(alice, () =>
+      rpc("submit_report", ["edit-own", report(alice, "grievance")]),
+    );
+    await asUser(admin, () =>
+      rpc("update_report", [
+        "edit-own",
+        "In Progress",
+        "Processing the report.",
+      ]),
+    );
+    const input = {
+      title: "Updated grievance title",
+      description: "Updated details describing the same underlying grievance.",
+      location: "Hostel reception",
+      contactNumber: "9876543210",
+      contactAddress: "Help desk",
+      visibility: "campus",
+    };
+    await expect(
+      asUser(bob, () => rpc("edit_own_report", ["edit-own", input])),
+    ).rejects.toThrow(/reporter/);
+    await expect(
+      asUser(admin, () => rpc("edit_own_report", ["edit-own", input])),
+    ).rejects.toThrow(/reporter/);
+    await expect(
+      asUser(alice, () =>
+        rpc("edit_own_report", ["edit-own", { ...input, status: "Resolved" }]),
+      ),
+    ).rejects.toThrow();
+    const r = await asUser(alice, () =>
+      rpc("edit_own_report", ["edit-own", input]),
+    );
+    expect(r.title).toBe(input.title);
+    expect(r.status).toBe("In Progress");
+    expect(r.visibility).toBe("private");
+    expect(r.timeline).toHaveLength(2);
+    expect(r.comments).toHaveLength(1);
+    expect(r.ownerUid).toBe(alice);
+    await asUser(alice, () =>
+      rpc("manage_own_report", ["edit-own", "delete", {}]),
+    );
+    await expect(
+      asUser(alice, () => rpc("edit_own_report", ["edit-own", input])),
+    ).rejects.toThrow();
+  });
+  it("checks team post ownership, event identity, and end time", async () => {
+    await asUser(admin, () =>
+      rpc("create_event", [
+        "editing-event",
+        {
+          title: "Campus editing workshop",
+          club: "Coding Club",
+          date: Date.now() + 86400000,
+          venue: "Main hall",
+          description:
+            "An upcoming workshop for students forming campus project teams.",
+          tags: ["Workshop"],
+        },
+      ]),
+    );
+    await asUser(alice, () =>
+      rpc("create_team_post", [
+        "editing-post",
+        {
+          eventId: "editing-event",
+          kind: "looking",
+          skills: ["Frontend"],
+          roles: [],
+          theme: "Open innovation",
+          idea: "An initial idea for our campus team project.",
+        },
+      ]),
+    );
+    const input = {
+      eventId: "editing-event",
+      kind: "looking",
+      skills: ["Frontend"],
+      roles: [],
+      theme: "Open innovation",
+      idea: "Updated details for a campus project team.",
+    };
+    await expect(
+      asUser(bob, () => rpc("edit_team_post", ["editing-post", input])),
+    ).rejects.toThrow(/author/);
+    await expect(
+      asUser(alice, () =>
+        rpc("edit_team_post", [
+          "editing-post",
+          { ...input, eventId: "elsewhere" },
+        ]),
+      ),
+    ).rejects.toThrow(/move/);
+    const r = await asUser(alice, () =>
+      rpc("edit_team_post", ["editing-post", input]),
+    );
+    expect(r.idea).toBe(input.idea);
+    expect(r.ownerUid).toBe(alice);
+    await pg.exec(
+      "update public.events set payload=payload||jsonb_build_object('date',1) where id='editing-event'",
+    );
+    await expect(
+      asUser(alice, () => rpc("edit_team_post", ["editing-post", input])),
+    ).rejects.toThrow(/closed/);
+  });
+});

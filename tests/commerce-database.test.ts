@@ -371,3 +371,51 @@ describe("Marketplace and Food Court database authorization", () => {
     ).toHaveLength(0);
   });
 });
+
+it("enforces seller-only edits and preserves moderation, identity and creation time", async () => {
+  const key = id();
+  const created = await as(alice, () =>
+    rpc("post_marketplace_listing", [key, listing]),
+  );
+  await expect(
+    as(bob, () => rpc("edit_marketplace_listing", [key, listing])),
+  ).rejects.toThrow(/seller/);
+  await expect(
+    as(admin, () => rpc("edit_marketplace_listing", [key, listing])),
+  ).rejects.toThrow(/seller/);
+  await expect(
+    as(alice, () =>
+      rpc("edit_marketplace_listing", [
+        key,
+        { ...listing, status: "available" },
+      ]),
+    ),
+  ).rejects.toThrow();
+  await expect(
+    as(alice, () =>
+      rpc("edit_marketplace_listing", [key, { ...listing, price: -1 }]),
+    ),
+  ).rejects.toThrow();
+  const edited = await as(alice, () =>
+    rpc("edit_marketplace_listing", [
+      key,
+      {
+        ...listing,
+        title: "Updated seller title",
+        price: 200,
+        images: ["data:image/jpeg;base64,YQ=="],
+      },
+    ]),
+  );
+  expect(edited.title).toBe("Updated seller title");
+  expect(Number(edited.price)).toBe(200);
+  expect(edited.images).toHaveLength(1);
+  expect(edited.seller_id).toBe(alice);
+  expect(edited.created_at).toBe(created.created_at);
+  await as(admin, () =>
+    rpc("change_marketplace_listing", [key, "removed", "Spam detected"]),
+  );
+  await expect(
+    as(alice, () => rpc("edit_marketplace_listing", [key, listing])),
+  ).rejects.toThrow(/closed/);
+});

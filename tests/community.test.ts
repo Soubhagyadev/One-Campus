@@ -3,6 +3,7 @@ vi.mock("../src/services/supabase", () => ({ supabase: null }));
 import {
   createEvent,
   createTeam,
+  editTeam,
   readCommunity,
   setRsvp,
 } from "../src/services/community";
@@ -63,4 +64,32 @@ describe("community", () => {
     expect(results[0].postId).toBe("demo-team-1");
     expect(results[0].score).toBeGreaterThan(0.5);
   });
+});
+
+it("lets the owner edit a team request without moving it or changing its author", async () => {
+  const input = {
+    eventId: "demo-innovation",
+    kind: "looking" as const,
+    skills: ["Frontend" as const],
+    roles: [],
+    theme: "Open innovation" as const,
+    idea: "An accessible campus tool for all students.",
+  };
+  const post = await createTeam(student, input);
+  await expect(
+    editTeam(admin, post.id, {
+      ...input,
+      idea: "An updated idea from somebody else.",
+    }),
+  ).rejects.toThrow(/author/);
+  const edited = await editTeam(student, post.id, {
+    ...input,
+    idea: "An updated campus idea from the original student.",
+  });
+  expect(edited.idea).toContain("updated campus");
+  expect(edited.ownerUid).toBe(student.uid);
+  expect(edited.createdAt).toBe(post.createdAt);
+  await expect(
+    editTeam(student, post.id, { ...input, eventId: "different" }),
+  ).rejects.toThrow(/move/);
 });
