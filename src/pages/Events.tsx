@@ -993,7 +993,6 @@ export default function Events() {
                 {user?.role === "admin" && (
                   <Button
                     variant="ghost"
-                    className="wide"
                     onClick={() => setEditingEvent(e)}
                   >
                     <Pencil size={15} /> Edit event
