@@ -1,0 +1,26 @@
+-- Synthetic live verification. All records, profiles and counters are rolled back.
+begin;
+insert into auth.users(id,raw_user_meta_data) values('a1111111-1111-4111-8111-111111111111','{"name":"Migration test","role":"admin"}'),('b2222222-2222-4222-8222-222222222222','{}'),('c3333333-3333-4333-8333-333333333333','{}');
+update public.profiles set role='admin' where id='c3333333-3333-4333-8333-333333333333';
+set local role authenticated;select set_config('request.jwt.claim.sub','a1111111-1111-4111-8111-111111111111',true);
+do $$begin if (public.get_my_profile()->>'role')<>'student' then raise exception 'Profile role escalation';end if;end$$;
+select public.cast_crowd_vote('reading-hall','free');
+select public.cast_crowd_vote('reading-hall','moderate');
+select public.submit_report('verification-private','{"ownerUid":"a1111111-1111-4111-8111-111111111111","type":"issue","category":"Connectivity","department":"IT","priority":"medium","title":"Temporary migration verification report","description":"A synthetic report used only in a transaction that is rolled back.","location":"Central Library","image":"","photoSafe":false,"safeDetails":{"intent":"issue","topic":"Wi-Fi unavailable","item":"Bottle","color":"Blue","feature":"Metal","urgency":"medium"},"status":"Submitted","deadline":1,"aiSummary":"Synthetic routing result for migration verification.","aiSource":"Local fallback","matchSource":"Local fallback","comments":[],"matches":[],"timeline":[],"createdAt":1,"resolvedAt":null,"demo":false}'::jsonb);
+select public.submit_report('verification-lost','{"ownerUid":"a1111111-1111-4111-8111-111111111111","type":"lost","category":"Personal belongings","department":"Security","priority":"medium","title":"Temporary migration verification report","description":"A synthetic report used only in a transaction that is rolled back.","location":"Central Library","image":"","photoSafe":false,"safeDetails":{"intent":"lost","topic":"Personal belonging","item":"Bottle","color":"Blue","feature":"Metal","urgency":"medium"},"status":"Submitted","deadline":1,"aiSummary":"Synthetic routing result for migration verification.","aiSource":"Local fallback","matchSource":"Local fallback","comments":[],"matches":[],"timeline":[],"createdAt":1,"resolvedAt":null,"demo":false}'::jsonb);
+select public.record_wellness(3,(statement_timestamp() at time zone 'Asia/Kolkata')::date::text);
+set local role authenticated;select set_config('request.jwt.claim.sub','b2222222-2222-4222-8222-222222222222',true);
+do $$begin if exists(select 1 from public.reports where id='verification-private') then raise exception 'Private report exposed';end if;end$$;
+select public.submit_report('verification-found','{"ownerUid":"b2222222-2222-4222-8222-222222222222","type":"found","category":"Personal belongings","department":"Security","priority":"medium","title":"Temporary migration verification report","description":"A synthetic report used only in a transaction that is rolled back.","location":"Central Library","image":"","photoSafe":false,"safeDetails":{"intent":"found","topic":"Personal belonging","item":"Bottle","color":"Blue","feature":"Metal","urgency":"medium"},"status":"Submitted","deadline":1,"aiSummary":"Synthetic routing result for migration verification.","aiSource":"Local fallback","matchSource":"Local fallback","comments":[],"matches":[],"timeline":[],"createdAt":1,"resolvedAt":null,"demo":false}'::jsonb);
+set local role authenticated;select set_config('request.jwt.claim.sub','a1111111-1111-4111-8111-111111111111',true);
+select public.request_claim('verification-found','verification-lost','A synthetic identifying detail for this test.','owner@example.test');
+set local role authenticated;select set_config('request.jwt.claim.sub','b2222222-2222-4222-8222-222222222222',true);
+do $$begin if exists(select 1 from public.claim_contacts where claim_id='verification-found__verification-lost') then raise exception 'Pending contact exposed';end if;end$$;
+select public.decide_claim('verification-found__verification-lost',true,'finder@example.test');
+do $$begin if (select count(*) from public.claim_contacts where claim_id='verification-found__verification-lost')<>2 then raise exception 'Approved contact sharing failed';end if;end$$;
+set local role authenticated;select set_config('request.jwt.claim.sub','c3333333-3333-4333-8333-333333333333',true);
+do $$begin if exists(select 1 from public.claim_contacts where claim_id='verification-found__verification-lost') then raise exception 'Contact exposed to non-participant admin';end if; if exists(select 1 from public.wellness_daily) then raise exception 'Small wellness cohort exposed';end if;end$$;
+select public.update_report('verification-private','Assigned','Synthetic official update.');
+reset role;
+rollback;
+select (select count(*) from public.reports where id like 'verification-%') as remaining_test_reports,(select count(*) from auth.users where id in ('a1111111-1111-4111-8111-111111111111','b2222222-2222-4222-8222-222222222222','c3333333-3333-4333-8333-333333333333')) as remaining_test_users,(select count(*) from public.spaces) as campus_spaces;

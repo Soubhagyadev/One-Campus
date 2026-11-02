@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function signedIn() { return request.auth != null; }
+  function admin() { return signedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'; }
+  function level(v) { return v in ['free','moderate','crowded']; }
+  function fresh(t) { return t is timestamp && t <= request.time && t >= request.time - duration.value(2,'m'); }
+  function validSummary(d) { return (d.level == null || level(d.level)) && d.reportCount is int && d.reportCount >= 0 && d.reportCount <= 10000 && d.updatedAt is timestamp; }
+  function validSpace(d) { return d.keys().hasOnly(['id','name','type','zone','quiet','level','reportCount','updatedAt','demo','bestHour']) && d.name is string && d.name.size() > 0 && d.name.size() <= 120 && d.type in ['library','lab'] && d.zone is string && d.zone.size() <= 120 && d.quiet is bool && (!('demo' in d) || d.demo is bool) && (!('bestHour' in d) || d.bestHour == null || (d.bestHour is int && d.bestHour >= 0 && d.bestHour <= 23)) && validSummary(d); }
+  function validUser(d) { return d.keys().hasAll(['name','role']) && d.keys().hasOnly(['name','role']) && d.name is string && d.name.size() <= 100 && d.role in ['student','admin']; }
+  match /users/{uid} {
+   allow read: if signedIn() && (request.auth.uid == uid || admin());
+   allow create: if signedIn() && request.auth.uid == uid && request.resource.data.keys().hasOnly(['name','role']) && request.resource.data.name is string && request.resource.data.name.size() <= 100 && request.resource.data.role == 'student';
+   allow update: if (admin() && validUser(request.resource.data)) || (signedIn() && request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']) && request.resource.data.name is string && request.resource.data.name.size() <= 100);
+  }
+  match /spaces/{id} {
+   allow read: if signedIn();
+   allow create: if admin() && validSpace(request.resource.data);
+   allow delete: if admin();
+   allow update: if signedIn() && validSpace(request.resource.data) && ((admin()) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['level','reportCount','updatedAt']) && fresh(request.resource.data.updatedAt)));
+   match /votes/{uid} {
+    // Active votes must be readable to recompute a client-side summary.
+    allow read: if signedIn();
+    allow create, update: if signedIn() && (request.auth.uid == uid || admin()) && request.resource.data.keys().hasOnly(['level','updatedAt']) && level(request.resource.data.level) && (fresh(request.resource.data.updatedAt) || (admin() && request.resource.data.updatedAt is timestamp && request.resource.data.updatedAt <= request.time));
+    allow delete: if signedIn() && request.auth.uid == uid;
+   }
+  }
+  match /checkIns/{id} {
+   allow read: if signedIn();
+   allow create: if signedIn() && request.resource.data.keys().hasAll(['spaceId','level','weekday','hour','createdAt']) && request.resource.data.keys().hasOnly(['spaceId','level','weekday','hour','createdAt']) && request.resource.data.spaceId is string && exists(/databases/$(database)/documents/spaces/$(request.resource.data.spaceId)) && level(request.resource.data.level) && request.resource.data.weekday is int && request.resource.data.weekday >= 0 && request.resource.data.weekday <= 6 && request.resource.data.hour is int && request.resource.data.hour >= 0 && request.resource.data.hour <= 23 && (fresh(request.resource.data.createdAt) || (admin() && request.resource.data.createdAt is timestamp && request.resource.data.createdAt <= request.time));
+   allow update, delete: if false;
+  }
+  function validDetails(d) {
+   return d is map && d.keys().hasAll(['intent','topic','item','color','feature','urgency']) && d.keys().hasOnly(['intent','topic','item','color','feature','urgency'])
+    && d.intent in ['issue','grievance','lost','found']
+    && d.topic in ['Wi-Fi unavailable','Computer not working','Broken furniture','Water leak','Cleaning needed','Library service','Hostel service','Administrative service','Safety concern','Personal belonging','Other']
+    && d.item in ['Not applicable','Bottle','Backpack','Laptop','Phone','Headphones','Keys','Book','Wallet','Other item']
+    && d.color in ['Not specified','Black','Blue','Red','Green','White','Silver','Brown','Other color']
+    && d.feature in ['Not specified','Metal','Plastic','Fabric','Leather','Patterned','Plain','With a strap','With a case'] && d.urgency in ['high','medium','low'];
+  }
+  function source(v) { return v in ['Gemini','Local fallback']; }
+  function validMatch(m,owner) {
+   return m is map && m.keys().hasAll(['reportId','confidence','reason']) && m.keys().hasOnly(['reportId','confidence','reason']) && m.reportId is string && m.reportId.size() <= 128
+    && m.confidence is number && m.confidence >= 0 && m.confidence <= 1 && m.reason is string && m.reason.size() >= 5 && m.reason.size() <= 240
+    && get(/databases/$(database)/documents/reports/$(m.reportId)).data.type == 'lost' && get(/databases/$(database)/documents/reports/$(m.reportId)).data.ownerUid != owner;
+  }
+  function validMatches(d) { return d.matches is list && d.matches.size() <= 3 && (d.matches.size() == 0 || (d.type == 'found' && validMatch(d.matches[0],d.ownerUid))) && (d.matches.size() < 2 || validMatch(d.matches[1],d.ownerUid)) && (d.matches.size() < 3 || validMatch(d.matches[2],d.ownerUid)); }
+  function validReport(d) {
+   return d.keys().hasAll(['ownerUid','type','category','department','priority','title','description','location','image','photoSafe','safeDetails','status','deadline','aiSummary','aiSource','matchSource','comments','matches','timeline','createdAt','resolvedAt','demo'])
+    && d.keys().hasOnly(['ownerUid','type','category','department','priority','title','description','location','image','photoSafe','safeDetails','status','deadline','aiSummary','aiSource','matchSource','comments','matches','timeline','createdAt','resolvedAt','demo','approvedClaimId'])
+    && d.ownerUid is string && d.ownerUid.size() <= 128 && d.type in ['issue','grievance','lost','found']
+    && d.category in ['Connectivity','Computer hardware','Maintenance','Cleanliness','Library services','Hostel services','Administration','Safety','Personal belongings','Other']
+    && d.department in ['IT','Facilities','Library','Hostel','Administration','Security'] && d.priority in ['high','medium','low']
+    && d.title is string && d.title.size() >= 5 && d.title.size() <= 120 && d.description is string && d.description.size() >= 15 && d.description.size() <= 3000 && d.location is string && d.location.size() >= 2 && d.location.size() <= 120
+    && d.image is string && d.image.size() <= 300000 && d.photoSafe is bool && (d.image == '' || (d.photoSafe && d.image.matches('data:image/jpeg;base64,[A-Za-z0-9+/=]+')))
+    && validDetails(d.safeDetails) && d.safeDetails.intent == d.type && d.status in ['Submitted','Assigned','In Progress','Resolved']
+    && d.createdAt is timestamp && d.deadline is timestamp && d.deadline == d.createdAt + duration.value(d.priority == 'high' ? 24 : d.priority == 'medium' ? 72 : 168,'h')
+    && d.aiSummary is string && d.aiSummary.size() >= 5 && d.aiSummary.size() <= 400 && source(d.aiSource) && source(d.matchSource)
+    && d.comments is list && d.comments.size() <= 50 && d.matches is list && d.matches.size() <= 3 && d.timeline is list && d.timeline.size() >= 1 && d.timeline.size() <= 4 && d.demo is bool
+    && (d.resolvedAt == null || d.resolvedAt is timestamp) && (!('approvedClaimId' in d) || (d.approvedClaimId is string && d.approvedClaimId.size() <= 260));
+  }
+  function validComment(c) { return c is map && c.keys().hasAll(['id','authorUid','text','createdAt']) && c.keys().hasOnly(['id','authorUid','text','createdAt']) && c.id is string && c.id.size() <= 128 && c.authorUid == request.auth.uid && c.text is string && c.text.size() > 0 && c.text.size() <= 1000 && fresh(c.createdAt); }
+  function advanceReport() {
+   let d=request.resource.data;
+   let old=resource.data;
+   let same=d.status == old.status;
+   let forward=(old.status == 'Submitted' && d.status == 'Assigned') || (old.status == 'Assigned' && d.status == 'In Progress') || (old.status == 'In Progress' && d.status == 'Resolved');
+   let last=d.timeline[d.timeline.size()-1];
+   let comment=d.comments.size() > old.comments.size() ? d.comments[d.comments.size()-1] : {};
+   return d.diff(old).affectedKeys().hasOnly(['status','resolvedAt','timeline','comments'])
+    && (same || forward) && ((same && d.timeline == old.timeline && d.resolvedAt == old.resolvedAt) || (forward && last.keys().hasOnly(['status','at']) && last.status == d.status && fresh(last.at) && d.timeline == old.timeline.concat([last]) && ((d.status == 'Resolved' && d.resolvedAt == last.at) || (d.status != 'Resolved' && d.resolvedAt == null))))
+    && (d.comments == old.comments || (d.comments.size() == old.comments.size()+1 && validComment(comment) && d.comments == old.comments.concat([comment])));
+  }
+  match /reports/{id} {
+   allow read: if signedIn() && (admin() || resource.data.ownerUid == request.auth.uid || resource.data.type in ['lost','found']);
+   allow create: if signedIn() && validReport(request.resource.data) && validMatches(request.resource.data) && request.resource.data.ownerUid == request.auth.uid && request.resource.data.status == 'Submitted' && fresh(request.resource.data.createdAt) && request.resource.data.resolvedAt == null && request.resource.data.comments.size() == 0 && request.resource.data.timeline == [{'status':'Submitted','at':request.resource.data.createdAt}] && !('approvedClaimId' in request.resource.data);
+   allow update: if signedIn() && validReport(request.resource.data) && ((admin() && advanceReport())
+    || (resource.data.ownerUid == request.auth.uid && resource.data.type == 'found' && resource.data.status != 'Resolved' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['matches','matchSource']) && validMatches(request.resource.data))
+    || (resource.data.ownerUid == request.auth.uid && resource.data.type == 'found' && resource.data.status != 'Resolved' && !('approvedClaimId' in resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approvedClaimId']) && getAfter(/databases/$(database)/documents/claims/$(request.resource.data.approvedClaimId)).data.status == 'approved' && getAfter(/databases/$(database)/documents/claims/$(request.resource.data.approvedClaimId)).data.foundId == id && getAfter(/databases/$(database)/documents/claims/$(request.resource.data.approvedClaimId)).data.finderUid == request.auth.uid));
+  }
+  function participant(c) { return signedIn() && (c.claimantUid == request.auth.uid || c.finderUid == request.auth.uid); }
+  match /claims/{id} {
+   allow read: if participant(resource.data);
+   allow create: if signedIn() && request.resource.data.keys().hasAll(['foundId','lostId','finderUid','claimantUid','proof','status','createdAt','decidedAt']) && request.resource.data.keys().hasOnly(['foundId','lostId','finderUid','claimantUid','proof','status','createdAt','decidedAt'])
+    && request.resource.data.foundId is string && request.resource.data.lostId is string && id == request.resource.data.foundId+'__'+request.resource.data.lostId
+    && request.resource.data.claimantUid == request.auth.uid && request.resource.data.finderUid is string && request.resource.data.finderUid != request.auth.uid
+    && get(/databases/$(database)/documents/reports/$(request.resource.data.foundId)).data.type == 'found' && get(/databases/$(database)/documents/reports/$(request.resource.data.foundId)).data.ownerUid == request.resource.data.finderUid && get(/databases/$(database)/documents/reports/$(request.resource.data.foundId)).data.status != 'Resolved' && !('approvedClaimId' in get(/databases/$(database)/documents/reports/$(request.resource.data.foundId)).data)
+    && get(/databases/$(database)/documents/reports/$(request.resource.data.lostId)).data.type == 'lost' && get(/databases/$(database)/documents/reports/$(request.resource.data.lostId)).data.ownerUid == request.auth.uid && get(/databases/$(database)/documents/reports/$(request.resource.data.lostId)).data.status != 'Resolved'
+    && request.resource.data.proof is string && request.resource.data.proof.size() >= 10 && request.resource.data.proof.size() <= 1000 && request.resource.data.status == 'pending' && fresh(request.resource.data.createdAt) && request.resource.data.decidedAt == null;
+   allow update: if signedIn() && request.auth.uid == resource.data.finderUid && resource.data.status == 'pending' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','decidedAt']) && request.resource.data.status in ['approved','rejected'] && fresh(request.resource.data.decidedAt)
+    && (request.resource.data.status == 'rejected' || (getAfter(/databases/$(database)/documents/reports/$(resource.data.foundId)).data.approvedClaimId == id && getAfter(/databases/$(database)/documents/claims/$(id)/contacts/$(request.auth.uid)).data.contact is string));
+   match /contacts/{uid} {
+    allow read: if signedIn() && (request.auth.uid == uid || (participant(get(/databases/$(database)/documents/claims/$(id)).data) && get(/databases/$(database)/documents/claims/$(id)).data.status == 'approved'));
+    allow create: if signedIn() && request.auth.uid == uid && request.resource.data.keys().hasOnly(['contact']) && request.resource.data.contact is string && request.resource.data.contact.size() >= 5 && request.resource.data.contact.size() <= 160 && participant(getAfter(/databases/$(database)/documents/claims/$(id)).data)
+     && (uid == getAfter(/databases/$(database)/documents/claims/$(id)).data.claimantUid || getAfter(/databases/$(database)/documents/claims/$(id)).data.status == 'approved');
+   }
+  }
+  function validClub(club) { return club in ['Innovation & Entrepreneurship Cell','Coding Club','Literary Society','Photography Club','Environment Club','Cultural Committee']; }
+  function managesClub(club) { return admin() || (signedIn() && get(/databases/$(database)/documents/clubLeads/$(request.auth.uid)).data.club == club); }
+  match /clubLeads/{uid} {
+   allow read: if signedIn() && (request.auth.uid == uid || admin());
+   allow create, update: if admin() && request.resource.data.keys().hasOnly(['club']) && validClub(request.resource.data.club);
+   allow delete: if admin();
+  }
+  function validEvent(d) {
+   return d.keys().hasAll(['ownerUid','title','club','date','venue','description','tags','createdAt','rsvpCount','demo']) && d.keys().hasOnly(['ownerUid','title','club','date','venue','description','tags','createdAt','rsvpCount','demo'])
+    && d.ownerUid is string && d.ownerUid.size() <= 128 && d.title is string && d.title.size() >= 5 && d.title.size() <= 120 && validClub(d.club) && d.date is timestamp && d.venue is string && d.venue.size() >= 3 && d.venue.size() <= 120
+    && d.description is string && d.description.size() >= 20 && d.description.size() <= 2000 && d.tags is list && d.tags.size() >= 1 && d.tags.size() <= 3 && d.tags.hasOnly(['Technology','Design','Culture','Sustainability','Workshop','Competition']) && d.createdAt is timestamp && d.rsvpCount is int && d.rsvpCount >= 0 && d.rsvpCount <= 100000 && d.demo is bool;
+  }
+  function rsvpChange(eventId) {
+   let path=/databases/$(database)/documents/events/$(eventId)/rsvps/$(request.auth.uid);
+   let next=getAfter(path).data;
+   return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rsvpCount']) && resource.data.date > request.time && next.uid == request.auth.uid
+    && ((next.active == true && (!exists(path) || get(path).data.active == false) && request.resource.data.rsvpCount == resource.data.rsvpCount + 1)
+     || (next.active == false && exists(path) && get(path).data.active == true && request.resource.data.rsvpCount == resource.data.rsvpCount - 1));
+  }
+  match /events/{id} {
+   allow read: if signedIn();
+   allow create: if signedIn() && validEvent(request.resource.data) && request.resource.data.ownerUid == request.auth.uid && managesClub(request.resource.data.club) && fresh(request.resource.data.createdAt) && request.resource.data.date > request.time && request.resource.data.rsvpCount == 0;
+   allow update: if signedIn() && validEvent(request.resource.data) && rsvpChange(id);
+   match /rsvps/{uid} {
+    allow read: if signedIn() && (request.auth.uid == uid || admin());
+    allow create, update: if signedIn() && request.auth.uid == uid && request.resource.data.keys().hasOnly(['uid','active','updatedAt']) && request.resource.data.uid == uid && request.resource.data.active is bool && fresh(request.resource.data.updatedAt) && get(/databases/$(database)/documents/events/$(id)).data.date > request.time
+     && ((!exists(/databases/$(database)/documents/events/$(id)/rsvps/$(uid)) && request.resource.data.active == true && getAfter(/databases/$(database)/documents/events/$(id)).data.rsvpCount == get(/databases/$(database)/documents/events/$(id)).data.rsvpCount + 1)
+      || (exists(/databases/$(database)/documents/events/$(id)/rsvps/$(uid)) && request.resource.data.active != resource.data.active && getAfter(/databases/$(database)/documents/events/$(id)).data.rsvpCount == get(/databases/$(database)/documents/events/$(id)).data.rsvpCount + (request.resource.data.active ? 1 : -1)));
+   }
+  }
+  function validSkills(v) { return v is list && v.size() <= 6 && v.hasOnly(['Frontend','Backend','UI/UX design','Research','Presentation','Data analysis','Writing','Photography','Event planning']); }
+  match /teamPosts/{id} {
+   allow read: if signedIn();
+   allow create: if signedIn() && request.resource.data.keys().hasAll(['ownerUid','eventId','kind','skills','roles','theme','idea','createdAt','demo']) && request.resource.data.keys().hasOnly(['ownerUid','eventId','kind','skills','roles','theme','idea','createdAt','demo'])
+    && request.resource.data.ownerUid == request.auth.uid && request.resource.data.eventId is string && get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.date > request.time
+    && request.resource.data.kind in ['looking','recruiting'] && validSkills(request.resource.data.skills) && request.resource.data.skills.size() >= 1 && validSkills(request.resource.data.roles) && (request.resource.data.kind != 'recruiting' || request.resource.data.roles.size() >= 1)
+    && request.resource.data.theme in ['Campus sustainability','Student productivity','Accessible learning','Community wellbeing','Creative storytelling','Open innovation'] && request.resource.data.idea is string && request.resource.data.idea.size() >= 15 && request.resource.data.idea.size() <= 1000 && fresh(request.resource.data.createdAt) && request.resource.data.demo is bool;
+  }
+  function currentCampusDay(date) {
+   let t=request.time + duration.value(330,'m');
+   return date == string(t.year())+'-'+(t.month() < 10 ? '0' : '')+string(t.month())+'-'+(t.day() < 10 ? '0' : '')+string(t.day());
+  }
+  function validMoodCount(d) {
+   return d.keys().hasAll(['m1','m2','m3','m4','m5','total']) && d.keys().hasOnly(['m1','m2','m3','m4','m5','total']) && d.m1 is int && d.m1 >= 0 && d.m2 is int && d.m2 >= 0 && d.m3 is int && d.m3 >= 0 && d.m4 is int && d.m4 >= 0 && d.m5 is int && d.m5 >= 0 && d.total is int && d.total <= 10000000 && d.total == d.m1+d.m2+d.m3+d.m4+d.m5;
+  }
+  match /wellnessDaily/{date} {
+   allow read: if admin() && resource.data.total >= 10;
+   allow create: if signedIn() && currentCampusDay(date) && validMoodCount(request.resource.data) && request.resource.data.total == 1;
+   allow update: if signedIn() && currentCampusDay(date) && validMoodCount(request.resource.data) && request.resource.data.total == resource.data.total + 1 && request.resource.data.m1 >= resource.data.m1 && request.resource.data.m2 >= resource.data.m2 && request.resource.data.m3 >= resource.data.m3 && request.resource.data.m4 >= resource.data.m4 && request.resource.data.m5 >= resource.data.m5;
+  }
+  match /{document=**} { allow read, write: if false; }
+ }
+}

@@ -1,0 +1,452 @@
+import { campusDay } from "../src/lib/wellness";
+import { readFileSync } from "node:fs";
+import { beforeAll, afterAll, describe, it } from "vitest";
+import {
+  initializeTestEnvironment,
+  assertFails,
+  assertSucceeds,
+} from "@firebase/rules-unit-testing";
+import type { RulesTestEnvironment } from "@firebase/rules-unit-testing";
+import {
+  doc,
+  setDoc,
+  updateDoc,
+  Timestamp,
+  getDoc,
+  writeBatch,
+  increment,
+  collection,
+  query,
+  where,
+  getDocs,
+} from "firebase/firestore";
+let env: RulesTestEnvironment;
+const makeReport = (ownerUid: string, type = "issue") => {
+  const createdAt = Timestamp.now();
+  return {
+    ownerUid,
+    type,
+    category: "Connectivity",
+    department: "IT",
+    priority: "medium",
+    title: "Reading hall Wi-Fi unavailable",
+    description:
+      "The connection drops repeatedly near the library reading desks.",
+    location: "Central Library",
+    image: "",
+    photoSafe: false,
+    safeDetails: {
+      intent: type,
+      topic: "Wi-Fi unavailable",
+      item: "Not applicable",
+      color: "Not specified",
+      feature: "Not specified",
+      urgency: "medium",
+    },
+    status: "Submitted",
+    deadline: Timestamp.fromMillis(createdAt.toMillis() + 72 * 3600000),
+    aiSummary: "Connectivity issue routed to IT.",
+    aiSource: "Local fallback",
+    matchSource: "Local fallback",
+    comments: [],
+    matches: [],
+    timeline: [{ status: "Submitted", at: createdAt }],
+    createdAt,
+    resolvedAt: null,
+    demo: false,
+  };
+};
+beforeAll(async () => {
+  env = await initializeTestEnvironment({
+    projectId: "demo-onecampus",
+    firestore: {
+      rules: readFileSync("firestore.rules", "utf8"),
+      host: "127.0.0.1",
+      port: 8080,
+    },
+  });
+  await env.withSecurityRulesDisabled(async (c) => {
+    const db = c.firestore();
+    await setDoc(doc(db, "users", "admin"), { name: "Admin", role: "admin" });
+    await setDoc(doc(db, "spaces", "library"), {
+      name: "Library",
+      zone: "Ground",
+      type: "library",
+      quiet: true,
+      level: "free",
+      reportCount: 0,
+      updatedAt: Timestamp.now(),
+    });
+  });
+});
+afterAll(async () => {
+  await env?.cleanup();
+});
+describe("Firestore access boundaries", () => {
+  it("denies anonymous reads", async () => {
+    await assertFails(
+      getDoc(
+        doc(env.unauthenticatedContext().firestore(), "spaces", "library"),
+      ),
+    );
+  });
+  it("permits student registration but never self-promotion", async () => {
+    const ref = doc(
+      env.authenticatedContext("student").firestore(),
+      "users",
+      "student",
+    );
+    await assertSucceeds(setDoc(ref, { name: "Student", role: "student" }));
+    await assertFails(updateDoc(ref, { role: "admin" }));
+  });
+  it("allows own vote and denies another student vote", async () => {
+    const db = env.authenticatedContext("student").firestore();
+    await assertSucceeds(
+      setDoc(doc(db, "spaces", "library", "votes", "student"), {
+        level: "free",
+        updatedAt: Timestamp.now(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, "spaces", "library", "votes", "other"), {
+        level: "free",
+        updatedAt: Timestamp.now(),
+      }),
+    );
+  });
+  it("prevents students changing a space name", async () => {
+    await assertFails(
+      updateDoc(
+        doc(
+          env.authenticatedContext("student").firestore(),
+          "spaces",
+          "library",
+        ),
+        { name: "Changed" },
+      ),
+    );
+  });
+  it("accepts anonymous logs and rejects identity or stale logs", async () => {
+    const db = env.authenticatedContext("student").firestore();
+    const log = {
+      spaceId: "library",
+      level: "free",
+      weekday: 0,
+      hour: 12,
+      createdAt: Timestamp.now(),
+    };
+    await assertSucceeds(setDoc(doc(db, "checkIns", "valid"), log));
+    await assertFails(
+      setDoc(doc(db, "checkIns", "identity"), { ...log, uid: "student" }),
+    );
+    await assertFails(
+      setDoc(doc(db, "checkIns", "stale"), {
+        ...log,
+        createdAt: Timestamp.fromMillis(1),
+      }),
+    );
+  });
+  it("allows admins to seed history, but no one to mutate logs", async () => {
+    const db = env.authenticatedContext("admin").firestore();
+    await assertSucceeds(
+      setDoc(doc(db, "checkIns", "seed"), {
+        spaceId: "library",
+        level: "free",
+        weekday: 0,
+        hour: 12,
+        createdAt: Timestamp.fromMillis(1),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, "checkIns", "seed"), { level: "crowded" }),
+    );
+  });
+  it("denies unfinished report and wellness writes", async () => {
+    const db = env.authenticatedContext("student").firestore();
+    await assertFails(
+      setDoc(doc(db, "reports", "x"), {
+        ownerUid: "student",
+        status: "Submitted",
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, "wellnessDaily", "2026-11-01"), { total: 1 }),
+    );
+  });
+});
+
+describe("Phase 2 privacy and workflow", () => {
+  it("allows owner creation, validates SLA and image size, and forbids preset status", async () => {
+    const db = env.authenticatedContext("reporter").firestore();
+    await assertSucceeds(
+      setDoc(doc(db, "reports", "private"), makeReport("reporter")),
+    );
+    await assertFails(
+      setDoc(doc(db, "reports", "bad-status"), {
+        ...makeReport("reporter"),
+        status: "Resolved",
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, "reports", "bad-deadline"), {
+        ...makeReport("reporter"),
+        deadline: Timestamp.now(),
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, "reports", "huge-image"), {
+        ...makeReport("reporter"),
+        photoSafe: true,
+        image: "data:image/jpeg;base64," + "a".repeat(300001),
+      }),
+    );
+  });
+  it("protects private concerns while allowing signed-in lost/found reads", async () => {
+    const other = env.authenticatedContext("other").firestore(),
+      owner = env.authenticatedContext("reporter").firestore();
+    await assertFails(getDoc(doc(other, "reports", "private")));
+    await assertSucceeds(getDoc(doc(owner, "reports", "private")));
+    await assertSucceeds(
+      setDoc(doc(owner, "reports", "lost"), makeReport("reporter", "lost")),
+    );
+    await assertSucceeds(getDoc(doc(other, "reports", "lost")));
+  });
+  it("denies owner status changes and allows append-only official admin comments", async () => {
+    const owner = env.authenticatedContext("reporter").firestore(),
+      db = env.authenticatedContext("admin").firestore();
+    await assertFails(
+      updateDoc(doc(owner, "reports", "private"), { status: "Assigned" }),
+    );
+    const r = (await getDoc(doc(db, "reports", "private"))).data()!;
+    const at = Timestamp.now();
+    await assertSucceeds(
+      updateDoc(doc(db, "reports", "private"), {
+        status: "Assigned",
+        timeline: [...r.timeline, { status: "Assigned", at }],
+        comments: [
+          {
+            id: "official",
+            authorUid: "admin",
+            text: "Assigned to the IT team.",
+            createdAt: at,
+          },
+        ],
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db, "reports", "private"), { comments: [] }),
+    );
+  });
+  it("locks contacts until atomic finder approval, including against admins and outsiders", async () => {
+    const owner = env.authenticatedContext("reporter").firestore(),
+      finder = env.authenticatedContext("finder").firestore();
+    await assertSucceeds(
+      setDoc(doc(finder, "reports", "found"), makeReport("finder", "found")),
+    );
+    const id = "found__lost",
+      at = Timestamp.now();
+    const batch = writeBatch(owner);
+    batch.set(doc(owner, "claims", id), {
+      foundId: "found",
+      lostId: "lost",
+      finderUid: "finder",
+      claimantUid: "reporter",
+      proof: "A specific mark near the base of the item.",
+      status: "pending",
+      createdAt: at,
+      decidedAt: null,
+    });
+    batch.set(doc(owner, "claims", id, "contacts", "reporter"), {
+      contact: "owner@example.test",
+    });
+    await assertSucceeds(batch.commit());
+    await assertFails(
+      getDoc(doc(finder, "claims", id, "contacts", "reporter")),
+    );
+    await assertFails(
+      getDoc(
+        doc(
+          env.authenticatedContext("admin").firestore(),
+          "claims",
+          id,
+          "contacts",
+          "reporter",
+        ),
+      ),
+    );
+    await assertFails(
+      updateDoc(doc(owner, "claims", id), {
+        status: "approved",
+        decidedAt: Timestamp.now(),
+      }),
+    );
+    const approval = writeBatch(finder);
+    approval.update(doc(finder, "claims", id), {
+      status: "approved",
+      decidedAt: Timestamp.now(),
+    });
+    approval.update(doc(finder, "reports", "found"), { approvedClaimId: id });
+    approval.set(doc(finder, "claims", id, "contacts", "finder"), {
+      contact: "finder@example.test",
+    });
+    await assertSucceeds(approval.commit());
+    await assertSucceeds(
+      getDoc(doc(finder, "claims", id, "contacts", "reporter")),
+    );
+    await assertSucceeds(
+      getDoc(doc(owner, "claims", id, "contacts", "finder")),
+    );
+    await assertFails(
+      getDoc(
+        doc(
+          env.authenticatedContext("outsider").firestore(),
+          "claims",
+          id,
+          "contacts",
+          "finder",
+        ),
+      ),
+    );
+  });
+});
+
+describe("Phase 3 community rules", () => {
+  const event = () => ({
+    ownerUid: "admin",
+    title: "Inclusive campus workshop",
+    club: "Coding Club",
+    date: Timestamp.fromMillis(Date.now() + 86400000),
+    venue: "Learning Centre",
+    description: "A practical workshop for curious students on campus.",
+    tags: ["Workshop"],
+    createdAt: Timestamp.now(),
+    rsvpCount: 0,
+    demo: false,
+  });
+  it("restricts event authorship and validates club leads", async () => {
+    const db = env.authenticatedContext("admin").firestore(),
+      student = env.authenticatedContext("student").firestore(),
+      lead = env.authenticatedContext("lead").firestore();
+    await assertFails(
+      setDoc(doc(student, "events", "forbidden"), {
+        ...event(),
+        ownerUid: "student",
+      }),
+    );
+    await assertSucceeds(setDoc(doc(db, "events", "workshop"), event()));
+    await assertSucceeds(
+      setDoc(doc(db, "clubLeads", "lead"), { club: "Coding Club" }),
+    );
+    await assertSucceeds(
+      setDoc(doc(lead, "events", "lead-event"), {
+        ...event(),
+        ownerUid: "lead",
+      }),
+    );
+    await assertFails(
+      setDoc(doc(lead, "events", "wrong-club"), {
+        ...event(),
+        ownerUid: "lead",
+        club: "Photography Club",
+      }),
+    );
+  });
+  it("requires atomic RSVP and prevents count tampering", async () => {
+    const db = env.authenticatedContext("student").firestore(),
+      ref = doc(db, "events", "workshop"),
+      vote = doc(db, "events", "workshop", "rsvps", "student");
+    await assertFails(updateDoc(ref, { rsvpCount: 99 }));
+    const batch = writeBatch(db);
+    batch.set(vote, {
+      uid: "student",
+      active: true,
+      updatedAt: Timestamp.now(),
+    });
+    batch.update(ref, { rsvpCount: 1 });
+    await assertSucceeds(batch.commit());
+    await assertFails(updateDoc(ref, { rsvpCount: 2 }));
+    const undo = writeBatch(db);
+    undo.update(vote, { active: false, updatedAt: Timestamp.now() });
+    undo.update(ref, { rsvpCount: 0 });
+    await assertSucceeds(undo.commit());
+  });
+  it("validates team post ownership and bounded skills", async () => {
+    const db = env.authenticatedContext("student").firestore(),
+      post = {
+        ownerUid: "student",
+        eventId: "workshop",
+        kind: "looking",
+        skills: ["Frontend"],
+        roles: [],
+        theme: "Student productivity",
+        idea: "A useful tool for finding quiet study spaces.",
+        createdAt: Timestamp.now(),
+        demo: false,
+      };
+    await assertSucceeds(setDoc(doc(db, "teamPosts", "valid-team"), post));
+    await assertFails(
+      setDoc(doc(db, "teamPosts", "forged-team"), {
+        ...post,
+        ownerUid: "other",
+      }),
+    );
+    await assertFails(
+      setDoc(doc(db, "teamPosts", "invalid-skills"), {
+        ...post,
+        skills: ["someone@example.test"],
+      }),
+    );
+  });
+});
+
+describe("Phase 4 anonymous counter privacy", () => {
+  it("permits exactly one increment with no identity or notes", async () => {
+    const db = env.authenticatedContext("student").firestore(),
+      ref = doc(db, "wellnessDaily", campusDay());
+    await assertSucceeds(
+      setDoc(ref, { m1: 0, m2: 0, m3: 1, m4: 0, m5: 0, total: 1 }),
+    );
+    await assertSucceeds(
+      updateDoc(ref, { m2: increment(1), total: increment(1) }),
+    );
+    await assertFails(
+      updateDoc(ref, { m2: increment(2), total: increment(2) }),
+    );
+    await assertFails(updateDoc(ref, { note: "A private note" }));
+    await assertFails(updateDoc(ref, { uid: "student" }));
+    await assertFails(updateDoc(ref, { m1: 1, m2: 0 }));
+    await assertFails(
+      setDoc(doc(db, "wellnessDaily", "2000-01-01"), {
+        m1: 0,
+        m2: 0,
+        m3: 1,
+        m4: 0,
+        m5: 0,
+        total: 1,
+      }),
+    );
+  });
+  it("hides small cohorts even from admins, then allows threshold-filtered reads", async () => {
+    const db = env.authenticatedContext("student").firestore(),
+      admin = env.authenticatedContext("admin").firestore(),
+      ref = doc(db, "wellnessDaily", campusDay());
+    await assertFails(getDoc(ref));
+    await assertFails(getDoc(doc(admin, "wellnessDaily", campusDay())));
+    for (let i = 0; i < 8; i++)
+      await assertSucceeds(
+        updateDoc(ref, { m4: increment(1), total: increment(1) }),
+      );
+    await assertSucceeds(getDoc(doc(admin, "wellnessDaily", campusDay())));
+    await assertSucceeds(
+      getDocs(
+        query(collection(admin, "wellnessDaily"), where("total", ">=", 10)),
+      ),
+    );
+    await assertFails(getDoc(ref));
+  });
+});
+
+describe('live subscription query shapes',()=>{
+ it('permits owner and public report queries without opening private reports',async()=>{const reporter=env.authenticatedContext('reporter').firestore(),other=env.authenticatedContext('other').firestore();await assertSucceeds(getDocs(query(collection(reporter,'reports'),where('ownerUid','==','reporter'))));await assertSucceeds(getDocs(query(collection(other,'reports'),where('type','in',['lost','found']))));await assertFails(getDocs(collection(other,'reports')));});
+ it('permits participant claim queries and approved contact listing',async()=>{const owner=env.authenticatedContext('reporter').firestore(),finder=env.authenticatedContext('finder').firestore();await assertSucceeds(getDocs(query(collection(owner,'claims'),where('claimantUid','==','reporter'))));await assertSucceeds(getDocs(query(collection(finder,'claims'),where('finderUid','==','finder'))));await assertSucceeds(getDocs(collection(owner,'claims','found__lost','contacts')));await assertFails(getDocs(collection(env.authenticatedContext('outsider').firestore(),'claims')));});
+});
